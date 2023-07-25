@@ -60,3 +60,27 @@ class FetchIndexesTest(unittest.TestCase):
     def test_other_database(self):
         self.assertEqual([i.name for i in fetch_indexes(self.conn, "HR")],
                          ["PK_Employees", "IX_Employees_Dept", "IX_Employees_Hire"])
+
+
+class IndexColumnsTest(unittest.TestCase):
+    def setUp(self):
+        conn = connection_from_fixture("sales_long")
+        self.sales = {i.name: i for i in fetch_indexes(conn, "Sales")}
+        self.hr = {i.name: i for i in fetch_indexes(conn, "HR")}
+
+    def test_key_columns_keep_their_order(self):
+        keys = self.sales["IX_Orders_Customer_Date"].keys
+        self.assertEqual([c.name for c in keys], ["CustomerID", "OrderDate"])
+
+    def test_included_columns(self):
+        self.assertEqual(self.sales["IX_Orders_Customer_Date"].includes, ["Status"])
+        self.assertEqual(self.sales["IX_Orders_Customer"].includes, [])
+
+    def test_descending_keys(self):
+        (key,) = self.hr["IX_Employees_Hire"].keys
+        self.assertTrue(key.descending)
+        self.assertEqual(key.sql(), "[HireDate] DESC")
+        self.assertFalse(self.hr["IX_Employees_Dept"].keys[0].descending)
+
+    def test_columnstore_has_no_key_columns(self):
+        self.assertEqual(self.sales["CCI_AuditLog"].keys, [])

@@ -5,7 +5,7 @@ queries run after a USE of that database.
 """
 from datetime import datetime
 
-from .model import Index, ServerInfo
+from .model import Index, IndexColumn, ServerInfo
 from .sqlnames import quote_name
 
 SERVER_SQL = """
@@ -121,12 +121,40 @@ def fetch_databases(conn):
         cur.close()
 
 
+def attach_columns(indexes, rows):
+    """Fill in the key columns (with direction) and included columns of each index."""
+    by_id = {(ix.object_id, ix.index_id): ix for ix in indexes}
+    for row in rows:
+        ix = by_id.get((int(row["object_id"]), int(row["index_id"])))
+        if ix is None:
+            continue
+        if row["is_included_column"]:
+            ix.includes.append(row["column_name"])
+        else:
+            ix.keys.append(IndexColumn(row["column_name"], bool(row["is_descending_key"])))
+
+
 def fetch_indexes(conn, database):
     """Return the Index objects of one database (heaps are not included)."""
     cur = conn.cursor()
     try:
         cur.execute("USE " + quote_name(database))
         cur.execute(INDEX_SQL)
-        return [index_from_row(database, row) for row in rows_as_dicts(cur)]
+        indexes = [index_from_row(database, row) for row in rows_as_dicts(cur)]
+        cur.execute(COLUMNS_SQL)
+        attach_columns(indexes, rows_as_dicts(cur))
+        return indexes
     finally:
         cur.close()
+
+
+COLUMNS_SQL = """
+SELECT ic.object_id, ic.index_id, c.name AS column_name, ic.key_ordinal,
+       ic.is_descending_key, ic.is_included_column
+FROM sys.index_columns AS ic
+JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+JOIN sys.objects AS o ON o.object_id = ic.object_id
+WHERE o.is_ms_shipped = 0
+  AND (ic.key_ordinal > 0 OR ic.is_included_column = 1)
+ORDER BY ic.object_id, ic.index_id, ic.is_included_column, ic.key_ordinal, ic.index_column_id;
+"""
