@@ -11,6 +11,7 @@ class Recommendation:
     action: str = KEEP
     reasons: list = field(default_factory=list)
     related: list = field(default_factory=list)  # names of the indexes this one is compared with
+    protected: bool = False  # backs a constraint or is not a rowstore index: never a drop candidate
 
 
 @dataclass
@@ -33,6 +34,21 @@ STATS_RESET_WARNING = (
     "least %g days.")
 
 
+def _protected_reason(ix):
+    """Why an index must stay regardless of how much it is used, or None."""
+    if ix.is_primary_key:
+        return "primary key"
+    if ix.is_unique_constraint:
+        return "unique constraint"
+    if ix.is_unique:
+        return "unique index, enforces uniqueness"
+    if ix.type_desc == "CLUSTERED":
+        return "clustered index"
+    if ix.type_desc != "NONCLUSTERED":
+        return "%s index, not analysed" % ix.type_desc.lower()
+    return None
+
+
 def _check_unused(rec, thresholds, uptime_days):
     ix = rec.index
     if ix.reads == 0 and ix.user_updates > 0:
@@ -43,6 +59,10 @@ def _check_unused(rec, thresholds, uptime_days):
         else:
             rec.action = DROP
             rec.reasons.append("no reads recorded, but %s updates keep it maintained" % format(ix.user_updates, ","))
+    elif ix.reads == 0 and not ix.has_usage_row:
+        rec.action = REVIEW
+        rec.reasons.append("no reads or writes recorded at all: the table may be idle, or the index "
+                           "has not been touched since the counters started")
 
 
 def analyse_database(database, indexes, server, config):
@@ -54,8 +74,16 @@ def analyse_database(database, indexes, server, config):
     recs = []
     for ix in indexes:
         rec = Recommendation(ix)
-        _check_unused(rec, th, server.uptime_days)
-        if rec.action == KEEP:
-            rec.reasons.append("%s reads, %s updates" % (format(ix.reads, ","), format(ix.user_updates, ",")))
+        reason = _protected_reason(ix)
+        if reason:
+            rec.protected = True
+            rec.reasons.append("%s; %s reads, %s updates" % (reason, format(ix.reads, ","), format(ix.user_updates, ",")))
+        elif ix.is_disabled:
+            rec.action = REVIEW
+            rec.reasons.append("disabled: it holds no data and is not maintained; drop it, or rebuild it on purpose")
+        else:
+            _check_unused(rec, th, server.uptime_days)
+            if rec.action == KEEP:
+                rec.reasons.append("%s reads, %s updates" % (format(ix.reads, ","), format(ix.user_updates, ",")))
         recs.append(rec)
     return DatabaseAnalysis(database, recs, warnings)
