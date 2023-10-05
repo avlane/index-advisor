@@ -65,6 +65,54 @@ def _check_unused(rec, thresholds, uptime_days):
                            "has not been touched since the counters started")
 
 
+def _escalate(rec, action):
+    """Move a recommendation to a stronger action, never to a weaker one."""
+    if ACTION_ORDER[action] < ACTION_ORDER[rec.action]:
+        rec.action = action
+
+
+def _key_tuple(ix):
+    return tuple((c.name.lower(), c.descending) for c in ix.keys)
+
+
+def _filter_key(ix):
+    return " ".join((ix.filter_definition or "").lower().split())
+
+
+def _check_duplicates(recs):
+    """Indexes on the same table with identical keys, includes and filter are redundant."""
+    groups = {}
+    for rec in recs:
+        ix = rec.index
+        if ix.type_desc != "NONCLUSTERED" or ix.is_disabled:
+            continue
+        key = (ix.schema.lower(), ix.table.lower(), _key_tuple(ix),
+               frozenset(c.lower() for c in ix.includes), _filter_key(ix))
+        groups.setdefault(key, []).append(rec)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        # keep the index that backs a constraint, then the most used, then the oldest
+        group.sort(key=lambda r: (not r.protected, -r.index.reads, r.index.index_id))
+        keeper = group[0]
+        for rec in group[1:]:
+            if rec.protected:
+                continue
+            _escalate(rec, DROP)
+            rec.reasons.append("exact duplicate of %s (same keys, includes and filter)" % keeper.index.name)
+            rec.related.append(keeper.index.name)
+            if rec.index.reads:
+                rec.reasons.append("its %s reads can be served by %s" % (format(rec.index.reads, ","), keeper.index.name))
+            keeper.reasons.append("%s is an exact duplicate of this index" % rec.index.name)
+
+
+def _add_usage_notes(recs):
+    for rec in recs:
+        if rec.action == KEEP and not rec.protected:
+            ix = rec.index
+            rec.reasons.insert(0, "%s reads, %s updates" % (format(ix.reads, ","), format(ix.user_updates, ",")))
+
+
 def analyse_database(database, indexes, server, config):
     th = config.thresholds
     warnings = []
@@ -83,7 +131,7 @@ def analyse_database(database, indexes, server, config):
             rec.reasons.append("disabled: it holds no data and is not maintained; drop it, or rebuild it on purpose")
         else:
             _check_unused(rec, th, server.uptime_days)
-            if rec.action == KEEP:
-                rec.reasons.append("%s reads, %s updates" % (format(ix.reads, ","), format(ix.user_updates, ",")))
         recs.append(rec)
+    _check_duplicates(recs)
+    _add_usage_notes(recs)
     return DatabaseAnalysis(database, recs, warnings)
