@@ -12,6 +12,7 @@ class Recommendation:
     reasons: list = field(default_factory=list)
     related: list = field(default_factory=list)  # names of the indexes this one is compared with
     protected: bool = False  # backs a constraint or is not a rowstore index: never a drop candidate
+    merge_includes: list = field(default_factory=list)  # columns other indexes want added to this one
 
 
 @dataclass
@@ -113,6 +114,85 @@ def _add_usage_notes(recs):
             rec.reasons.insert(0, "%s reads, %s updates" % (format(ix.reads, ","), format(ix.user_updates, ",")))
 
 
+def _covered(ix):
+    """Lower-case names of the columns an index can return without a lookup."""
+    return {c.name.lower() for c in ix.keys} | {c.lower() for c in ix.includes}
+
+
+def _outranks(a, b):
+    """For two indexes with the same keys: does `a` win as the merge target?"""
+    return (a.reads, -a.index_id) > (b.reads, -b.index_id)
+
+
+def _merge_candidates(src, table_recs):
+    ix = src.index
+    n = len(ix.keys)
+    found = []
+    for tgt in table_recs:
+        t = tgt.index
+        if tgt is src or t.is_disabled or tgt.action == DROP:
+            continue
+        if t.type_desc not in ("CLUSTERED", "NONCLUSTERED") or _filter_key(t) != _filter_key(ix):
+            continue
+        if len(t.keys) < n or _key_tuple(t)[:n] != _key_tuple(ix):
+            continue
+        if len(t.keys) == n and not _outranks(t, ix):
+            continue
+        found.append(tgt)
+    return found
+
+
+def _check_overlaps(recs):
+    """An index whose keys are a left prefix of another index can usually be dropped.
+
+    If it has included columns the wider index lacks, they are added to the wider
+    index instead (consolidate).
+    """
+    tables = {}
+    for rec in recs:
+        tables.setdefault((rec.index.schema.lower(), rec.index.table.lower()), []).append(rec)
+    targets = {}
+    for table_recs in tables.values():
+        for src in table_recs:
+            ix = src.index
+            if src.protected or ix.type_desc != "NONCLUSTERED" or ix.is_disabled or not ix.keys or src.action == DROP:
+                continue
+            options = _merge_candidates(src, table_recs)
+            if options:
+                wanted = {c.lower() for c in ix.includes}
+                targets[id(src)] = min(options, key=lambda r: (
+                    not (r.index.type_desc == "CLUSTERED" or wanted <= _covered(r.index)),
+                    -r.index.reads, len(r.index.keys) + len(r.index.includes), r.index.index_id))
+    by_id = {id(r): r for r in recs}
+    for key, tgt in list(targets.items()):
+        seen = {key}
+        while id(tgt) in targets and id(tgt) not in seen:  # the target is itself merged into something wider
+            seen.add(id(tgt))
+            tgt = targets[id(tgt)]
+        targets[key] = tgt
+    for key, tgt in targets.items():
+        src, t = by_id[key], tgt.index
+        wanted = [c for c in src.index.includes]
+        missing = [] if t.type_desc == "CLUSTERED" else [c for c in wanted if c.lower() not in _covered(t)]
+        same = len(t.keys) == len(src.index.keys)
+        how = "has the same keys as" if same else "is a left prefix of"
+        extra = " (%.1f MB against %.1f MB)" % (t.size_mb, src.index.size_mb)
+        src.related.append(t.name)
+        if src.index.reads:
+            src.reasons.append("its %s reads would be served by %s%s" % (format(src.index.reads, ","), t.name, extra))
+        if missing:
+            _escalate(src, CONSOLIDATE)
+            src.reasons.insert(0, "%s %s; merge it by adding INCLUDE (%s) to %s, then drop it" % (
+                "it " + how, t.name, ", ".join(missing), t.name))
+            for column in missing:
+                if column not in tgt.merge_includes:
+                    tgt.merge_includes.append(column)
+        else:
+            _escalate(src, DROP)
+            src.reasons.insert(0, "it %s %s, which already covers its included columns" % (how, t.name))
+        tgt.reasons.append("%s can be merged into this index" % src.index.name)
+
+
 def analyse_database(database, indexes, server, config):
     th = config.thresholds
     warnings = []
@@ -133,5 +213,6 @@ def analyse_database(database, indexes, server, config):
             _check_unused(rec, th, server.uptime_days)
         recs.append(rec)
     _check_duplicates(recs)
+    _check_overlaps(recs)
     _add_usage_notes(recs)
     return DatabaseAnalysis(database, recs, warnings)
