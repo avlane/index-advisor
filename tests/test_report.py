@@ -1,0 +1,52 @@
+import unittest
+
+from index_advisor.analysis import Report, analyse_database
+from index_advisor.config import Config
+from index_advisor.queries import fetch_indexes, fetch_server_info
+from index_advisor.report import render, render_text
+
+from .fakes import connection_from_fixture
+
+
+def build_report(fixture="sales_long"):
+    conn = connection_from_fixture(fixture)
+    server = fetch_server_info(conn)
+    dbs = [analyse_database(name, fetch_indexes(conn, name), server, Config()) for name in ("HR", "Sales")]
+    return Report(server, dbs)
+
+
+class TextReportTest(unittest.TestCase):
+    def setUp(self):
+        self.text = render_text(build_report())
+
+    def test_header_has_start_time(self):
+        self.assertIn("index-advisor report for SQLPROD01", self.text)
+        self.assertIn("SQL Server started 2023-04-21 04:00 (80.2 days ago)", self.text)
+
+    def test_database_summary_line(self):
+        self.assertIn("Database HR: 3 indexes analysed - 0 drop, 0 consolidate, 0 review, 3 keep", self.text)
+        self.assertIn("Database Sales: 15 indexes analysed - 3 drop, 1 consolidate, 2 review, 9 keep", self.text)
+
+    def test_drop_candidates_come_first_with_reasons(self):
+        sales = self.text.split("Database Sales")[1]
+        self.assertLess(sales.index("DROP"), sales.index("CONSOLIDATE"))
+        self.assertLess(sales.index("CONSOLIDATE"), sales.index("REVIEW"))
+        self.assertIn("DROP        dbo.Orders.IX_Orders_Date_Copy (39.1 MB)", self.text)
+        self.assertIn("      - exact duplicate of IX_Orders_Date (same keys, includes and filter)", self.text)
+
+    def test_keep_recommendations_are_hidden_by_default(self):
+        self.assertNotIn("PK_Orders", self.text)
+        self.assertIn("PK_Orders", render_text(build_report(), show_keep=True))
+
+    def test_short_uptime_warning_is_shown(self):
+        text = render_text(build_report("sales_short"))
+        self.assertIn("  WARNING: SQL Server started on 2023-06-28 04:00", text)
+
+    def test_unreadable_database_is_listed(self):
+        report = build_report()
+        report.errors.append(("Broken", "permission denied"))
+        self.assertIn("Database Broken could not be read: permission denied", render_text(report))
+
+    def test_unknown_format(self):
+        with self.assertRaises(ValueError):
+            render(build_report(), "xml")

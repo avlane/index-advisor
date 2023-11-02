@@ -216,3 +216,21 @@ def analyse_database(database, indexes, server, config):
     _check_overlaps(recs)
     _add_usage_notes(recs)
     return DatabaseAnalysis(database, recs, warnings)
+
+
+@dataclass
+class Report:
+    """The result for a whole server."""
+
+    server: object
+    databases: list
+    errors: list = field(default_factory=list)  # (database, message) for databases that could not be read
+
+    def totals(self):
+        counts = {KEEP: 0, DROP: 0, CONSOLIDATE: 0, REVIEW: 0}
+        reclaimable = 0.0
+        for db in self.databases:
+            for action, n in db.counts().items():
+                counts[action] += n
+            reclaimable += sum(r.index.size_mb for r in db.recommendations if r.action == DROP)
+        return {"indexes": sum(counts.values()), "by_action": counts, "drop_size_mb": round(reclaimable, 1)}
