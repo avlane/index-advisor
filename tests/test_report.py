@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from index_advisor.analysis import Report, analyse_database
@@ -50,3 +51,29 @@ class TextReportTest(unittest.TestCase):
     def test_unknown_format(self):
         with self.assertRaises(ValueError):
             render(build_report(), "xml")
+
+
+class JsonReportTest(unittest.TestCase):
+    def test_structure(self):
+        doc = json.loads(render(build_report(), "json"))
+        self.assertEqual(doc["server"]["name"], "SQLPROD01")
+        self.assertEqual(doc["server"]["started"], "2023-04-21T04:00:00")
+        self.assertEqual(doc["server"]["uptime_days"], 80.2)
+        self.assertEqual([d["name"] for d in doc["databases"]], ["HR", "Sales"])
+        self.assertEqual(doc["totals"]["by_action"]["drop"], 3)
+        self.assertEqual(doc["errors"], [])
+
+    def test_all_recommendations_are_included_and_worst_first(self):
+        sales = json.loads(render(build_report(), "json"))["databases"][1]
+        self.assertEqual(len(sales["recommendations"]), 15)
+        self.assertEqual(sales["recommendations"][0]["action"], "drop")
+        self.assertEqual(sales["recommendations"][-1]["action"], "keep")
+        first = sales["recommendations"][0]
+        self.assertEqual(set(first), {"schema", "table", "index", "index_id", "type", "action", "reasons",
+                                      "related", "reads", "updates", "size_mb", "last_read"})
+
+    def test_errors_are_reported(self):
+        report = build_report()
+        report.errors.append(("Broken", "denied"))
+        doc = json.loads(render(report, "json"))
+        self.assertEqual(doc["errors"], [{"database": "Broken", "message": "denied"}])

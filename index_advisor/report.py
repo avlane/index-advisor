@@ -1,4 +1,6 @@
 """Render a Report as text, JSON or Markdown."""
+import json
+
 from .analysis import ACTION_ORDER, KEEP
 
 
@@ -38,7 +40,52 @@ def render_text(report, show_keep=False):
     return "\n".join(lines) + "\n"
 
 
-RENDERERS = {"text": render_text}
+def _recommendation_doc(rec):
+    ix = rec.index
+    return {
+        "schema": ix.schema,
+        "table": ix.table,
+        "index": ix.name,
+        "index_id": ix.index_id,
+        "type": ix.type_desc,
+        "action": rec.action,
+        "reasons": rec.reasons,
+        "related": rec.related,
+        "reads": ix.reads,
+        "updates": ix.user_updates,
+        "size_mb": round(ix.size_mb, 1),
+        "last_read": ix.last_user_read.isoformat(timespec="seconds") if ix.last_user_read else None,
+    }
+
+
+def render_json(report, show_keep=False):
+    """All recommendations, including keep: consumers filter on `action` themselves."""
+    server = report.server
+    doc = {
+        "server": {
+            "name": server.server_name,
+            "version": server.version,
+            "edition": server.edition,
+            "started": server.start_time.isoformat(timespec="seconds"),
+            "now": server.now.isoformat(timespec="seconds"),
+            "uptime_days": round(server.uptime_days, 1),
+        },
+        "totals": report.totals(),
+        "databases": [
+            {
+                "name": db.database,
+                "counts": db.counts(),
+                "warnings": db.warnings,
+                "recommendations": [_recommendation_doc(r) for r in _ordered(db.recommendations, True)],
+            }
+            for db in report.databases
+        ],
+        "errors": [{"database": name, "message": message} for name, message in report.errors],
+    }
+    return json.dumps(doc, indent=2) + "\n"
+
+
+RENDERERS = {"text": render_text, "json": render_json}
 
 
 def render(report, fmt="text", show_keep=False):
