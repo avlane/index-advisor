@@ -70,3 +70,30 @@ class Index:
     @property
     def full_name(self):
         return "%s.%s.%s" % (self.schema, self.table, self.name)
+
+
+@dataclass
+class MissingIndex:
+    """One entry of sys.dm_db_missing_index_details with its group statistics."""
+
+    database: str
+    schema: str
+    table: str
+    equality: list
+    inequality: list
+    includes: list
+    seeks: int = 0
+    scans: int = 0
+    avg_cost: float = 0.0
+    avg_impact: float = 0.0  # percent
+    compiles: int = 0
+    last_use: Optional[datetime] = None
+
+    @property
+    def score(self):
+        """The usual improvement measure: cost * impact * number of uses."""
+        return self.avg_cost * self.avg_impact * (self.seeks + self.scans)
+
+    @property
+    def table_name(self):
+        return "%s.%s" % (self.schema, self.table)

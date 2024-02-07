@@ -46,6 +46,7 @@ class FakeConnection:
             ("FROM sys.databases", lambda c: [{"name": n} for n in c.doc["databases"]]),
             ("sys.dm_db_index_usage_stats", lambda c: c.db_rows("indexes")),
             ("sys.index_columns", lambda c: c.db_rows("columns")),
+            ("sys.dm_db_missing_index_details", lambda c: c.doc["missing"]),
         ]
 
     def db_rows(self, key):

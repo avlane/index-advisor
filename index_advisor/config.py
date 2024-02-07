@@ -12,6 +12,7 @@ class Thresholds:
     min_uptime_days: float = 30.0  # below this the usage counters are not trusted
     min_updates: int = 1000  # writes needed before a low read/write ratio is worth a look
     low_read_ratio: float = 0.01  # reads divided by writes below this is "low value"
+    min_missing_score: float = 10000.0  # cost * impact * uses below this is not worth a suggestion
 
 
 @dataclass
@@ -19,7 +20,12 @@ class Config:
     thresholds: Thresholds = field(default_factory=Thresholds)
 
 
-_THRESHOLD_TYPES = {"min_uptime_days": (int, float), "min_updates": (int,), "low_read_ratio": (int, float)}
+_THRESHOLD_TYPES = {
+    "min_uptime_days": (int, float),
+    "min_updates": (int,),
+    "low_read_ratio": (int, float),
+    "min_missing_score": (int, float),
+}
 
 
 def parse_config(data):

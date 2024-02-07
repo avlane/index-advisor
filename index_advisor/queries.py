@@ -5,7 +5,7 @@ queries run after a USE of that database.
 """
 from datetime import datetime
 
-from .model import Index, IndexColumn, ServerInfo
+from .model import Index, IndexColumn, MissingIndex, ServerInfo
 from .sqlnames import quote_name
 
 SERVER_SQL = """
@@ -158,3 +158,51 @@ WHERE o.is_ms_shipped = 0
   AND (ic.key_ordinal > 0 OR ic.is_included_column = 1)
 ORDER BY ic.object_id, ic.index_id, ic.is_included_column, ic.key_ordinal, ic.index_column_id;
 """
+
+
+MISSING_SQL = """
+SELECT DB_NAME(mid.database_id) AS database_name, mid.statement AS table_statement,
+       mid.equality_columns, mid.inequality_columns, mid.included_columns,
+       migs.unique_compiles, migs.user_seeks, migs.user_scans,
+       migs.avg_total_user_cost, migs.avg_user_impact, migs.last_user_seek, migs.last_user_scan
+FROM sys.dm_db_missing_index_details AS mid
+JOIN sys.dm_db_missing_index_groups AS mig ON mig.index_handle = mid.index_handle
+JOIN sys.dm_db_missing_index_group_stats AS migs ON migs.group_handle = mig.index_group_handle
+WHERE mid.database_id > 4
+ORDER BY database_name, table_statement;
+"""
+
+
+def parse_columns(text):
+    if not text:
+        return []
+    return [part.strip().strip("[]") for part in text.split(",")]
+
+
+def parse_statement(statement):
+    database, schema, table = statement.strip("[]").split("].[")
+    return database, schema, table
+
+
+def missing_from_row(row):
+    database, schema, table = parse_statement(row["table_statement"])
+    return MissingIndex(
+        database=database, schema=schema, table=table,
+        equality=parse_columns(row["equality_columns"]),
+        inequality=parse_columns(row["inequality_columns"]),
+        includes=parse_columns(row["included_columns"]),
+        seeks=_count(row["user_seeks"]), scans=_count(row["user_scans"]),
+        avg_cost=float(row["avg_total_user_cost"] or 0), avg_impact=float(row["avg_user_impact"] or 0),
+        compiles=_count(row["unique_compiles"]),
+        last_use=_latest(row["last_user_seek"], row["last_user_scan"]),
+    )
+
+
+def fetch_missing_indexes(conn):
+    """Missing-index suggestions for every database on the server (the DMVs are server-wide)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(MISSING_SQL)
+        return [missing_from_row(row) for row in rows_as_dicts(cur)]
+    finally:
+        cur.close()

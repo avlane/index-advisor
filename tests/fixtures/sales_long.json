@@ -60,6 +60,11 @@
       "foreign_keys": []
     }
   },
-  "missing": [],
+  "missing": [
+    {"database_name": "Sales", "table_statement": "[Sales].[dbo].[Orders]", "equality_columns": "[CustomerID], [Status]", "inequality_columns": "[OrderDate]", "included_columns": "[Total]", "unique_compiles": 40, "user_seeks": 2200, "user_scans": 0, "avg_total_user_cost": 18.4, "avg_user_impact": 97.5, "last_user_seek": "2023-07-10T08:12:00", "last_user_scan": null},
+    {"database_name": "Sales", "table_statement": "[Sales].[dbo].[Orders]", "equality_columns": "[CustomerID]", "inequality_columns": null, "included_columns": "[Status], [OrderDate]", "unique_compiles": 9, "user_seeks": 300, "user_scans": 0, "avg_total_user_cost": 2.1, "avg_user_impact": 71.0, "last_user_seek": "2023-07-09T17:40:00", "last_user_scan": null},
+    {"database_name": "Sales", "table_statement": "[Sales].[dbo].[Customers]", "equality_columns": "[LastName]", "inequality_columns": null, "included_columns": null, "unique_compiles": 3, "user_seeks": 15, "user_scans": 2, "avg_total_user_cost": 0.4, "avg_user_impact": 55.0, "last_user_seek": "2023-07-01T09:00:00", "last_user_scan": "2023-06-30T11:00:00"},
+    {"database_name": "HR", "table_statement": "[HR].[dbo].[Employees]", "equality_columns": "[Email]", "inequality_columns": null, "included_columns": null, "unique_compiles": 50, "user_seeks": 800, "user_scans": 0, "avg_total_user_cost": 3.3, "avg_user_impact": 99.0, "last_user_seek": "2023-07-10T09:30:00", "last_user_scan": null}
+  ],
   "availability_databases": []
 }
