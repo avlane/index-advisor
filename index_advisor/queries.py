@@ -173,14 +173,39 @@ ORDER BY database_name, table_statement;
 """
 
 
+def split_identifiers(text):
+    """Unquote a run of bracket-quoted identifiers, as in "[a], [b]]c]" or "[db].[schema].[table]".
+
+    Names may contain commas, dots and (doubled) closing brackets, so splitting on
+    separators is not safe.
+    """
+    names, i = [], 0
+    while i < len(text):
+        if text[i] != "[":
+            i += 1
+            continue
+        i += 1
+        chars = []
+        while i < len(text):
+            if text[i] == "]":
+                if text[i + 1:i + 2] == "]":
+                    chars.append("]")
+                    i += 2
+                    continue
+                break
+            chars.append(text[i])
+            i += 1
+        names.append("".join(chars))
+        i += 1
+    return names
+
+
 def parse_columns(text):
-    if not text:
-        return []
-    return [part.strip().strip("[]") for part in text.split(",")]
+    return split_identifiers(text) if text else []
 
 
 def parse_statement(statement):
-    database, schema, table = statement.strip("[]").split("].[")
+    database, schema, table = split_identifiers(statement)
     return database, schema, table
 
 
