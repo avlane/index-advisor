@@ -9,6 +9,7 @@ from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
 from .queries import fetch_databases, fetch_indexes, fetch_server_info
 from .report import render
+from .scripts import generate_scripts
 
 EXIT_OK, EXIT_ERROR, EXIT_PARTIAL = 0, 3, 4
 
@@ -36,6 +37,8 @@ def build_parser():
     p.add_argument("--format", choices=("text", "json"), default="text", help="report format (default: text)")
     p.add_argument("-o", "--output", help="write the report to this file instead of stdout")
     p.add_argument("--show-keep", action="store_true", help="also list the indexes that should be kept")
+    p.add_argument("--scripts-dir", metavar="DIR",
+                   help="write review scripts (drop candidates, rollback, consolidation) into DIR; nothing is run")
     p.add_argument("--user", help="SQL login; the password is read from INDEX_ADVISOR_PASSWORD")
     p.add_argument("--driver", default=DEFAULT_DRIVER, help="ODBC driver name (default: %(default)s)")
     p.add_argument("--no-encrypt", action="store_true", help="connect without encryption")
@@ -101,7 +104,15 @@ def main(argv=None, connect=None, stdout=None):
             analyses.append(analyse_database(name, indexes, server, config))
     finally:
         conn.close()
-    text = render(Report(server, analyses, errors), args.format, show_keep=args.show_keep)
+    report = Report(server, analyses, errors)
+    if args.scripts_dir:
+        files = generate_scripts(report)
+        os.makedirs(args.scripts_dir, exist_ok=True)
+        for name, content in files.items():
+            with open(os.path.join(args.scripts_dir, name), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(content)
+        print("index-advisor: wrote %d script(s) to %s" % (len(files), args.scripts_dir), file=sys.stderr)
+    text = render(report, args.format, show_keep=args.show_keep)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(text)
