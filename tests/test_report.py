@@ -4,7 +4,7 @@ import unittest
 from index_advisor.analysis import Report, analyse_database
 from index_advisor.config import Config
 from index_advisor.queries import fetch_indexes, fetch_server_info
-from index_advisor.report import render, render_text
+from index_advisor.report import render, render_markdown, render_text
 
 from .fakes import connection_from_fixture
 
@@ -77,3 +77,31 @@ class JsonReportTest(unittest.TestCase):
         report.errors.append(("Broken", "denied"))
         doc = json.loads(render(report, "json"))
         self.assertEqual(doc["errors"], [{"database": "Broken", "message": "denied"}])
+
+
+class MarkdownReportTest(unittest.TestCase):
+    def setUp(self):
+        self.text = render(build_report(), "markdown")
+
+    def test_headings_and_summary(self):
+        self.assertTrue(self.text.startswith("# Index review: SQLPROD01\n"))
+        self.assertIn("## Sales", self.text)
+        self.assertIn("15 indexes analysed: 3 drop, 1 consolidate, 2 review, 9 keep.", self.text)
+
+    def test_table_row(self):
+        self.assertIn("| drop | `dbo.Orders.IX_Orders_Date_Copy` | 39.1 MB | 0 | 480 | "
+                      "no reads recorded, but 480 updates keep it maintained<br>exact duplicate of IX_Orders_Date "
+                      "(same keys, includes and filter) |", self.text)
+
+    def test_keep_rows_are_optional(self):
+        self.assertNotIn("PK_Orders", self.text)
+        self.assertIn("`dbo.Orders.PK_Orders`", render_markdown(build_report(), show_keep=True))
+
+    def test_warning_is_a_quote(self):
+        self.assertIn("> **Warning:** SQL Server started on 2023-06-28 04:00", render(build_report("sales_short"), "markdown"))
+
+    def test_pipes_in_names_do_not_break_the_table(self):
+        report = build_report()
+        rec = [r for r in report.databases[1].recommendations if r.action == "drop"][0]
+        rec.reasons.append("a | b")
+        self.assertIn("a \\| b", render(report, "markdown"))

@@ -85,7 +85,42 @@ def render_json(report, show_keep=False):
     return json.dumps(doc, indent=2) + "\n"
 
 
-RENDERERS = {"text": render_text, "json": render_json}
+def _cell(value):
+    """Escape text for a Markdown table cell."""
+    return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
+def render_markdown(report, show_keep=False):
+    server = report.server
+    lines = [
+        "# Index review: %s" % (server.server_name or "(unknown server)"),
+        "",
+        "SQL Server started %s (%.1f days ago)." % (server.start_time.strftime("%Y-%m-%d %H:%M"), server.uptime_days),
+    ]
+    for db in report.databases:
+        counts = db.counts()
+        lines += ["", "## %s" % db.database, "",
+                  "%d indexes analysed: %d drop, %d consolidate, %d review, %d keep." % (
+                      len(db.recommendations), counts["drop"], counts["consolidate"], counts["review"], counts["keep"])]
+        for warning in db.warnings:
+            lines += ["", "> **Warning:** " + _cell(warning)]
+        recs = _ordered(db.recommendations, show_keep)
+        if recs:
+            lines += ["", "| Action | Index | Size | Reads | Updates | Reasons |", "| --- | --- | ---: | ---: | ---: | --- |"]
+            for rec in recs:
+                ix = rec.index
+                lines.append("| %s | `%s` | %s | %s | %s | %s |" % (
+                    rec.action, ix.full_name, _mb(ix.size_mb), format(ix.reads, ","), format(ix.user_updates, ","),
+                    "<br>".join(_cell(r) for r in rec.reasons)))
+    for database, message in report.errors:
+        lines += ["", "**%s could not be read:** %s" % (_cell(database), _cell(message))]
+    totals = report.totals()
+    lines += ["", "%d indexes analysed. Indexes recommended for dropping hold %s." % (
+        totals["indexes"], _mb(totals["drop_size_mb"]))]
+    return "\n".join(lines) + "\n"
+
+
+RENDERERS = {"text": render_text, "json": render_json, "markdown": render_markdown}
 
 
 def render(report, fmt="text", show_keep=False):

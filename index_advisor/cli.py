@@ -34,7 +34,7 @@ def build_parser():
     p.add_argument("--config", help="TOML file with thresholds")
     p.add_argument("-d", "--database", action="append", default=[], metavar="NAME",
                    help="only analyse this database (repeatable)")
-    p.add_argument("--format", choices=("text", "json"), default="text", help="report format (default: text)")
+    p.add_argument("--format", choices=("text", "json", "markdown"), default="text", help="report format (default: text)")
     p.add_argument("-o", "--output", help="write the report to this file instead of stdout")
     p.add_argument("--show-keep", action="store_true", help="also list the indexes that should be kept")
     p.add_argument("--scripts-dir", metavar="DIR",
