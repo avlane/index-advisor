@@ -193,6 +193,18 @@ def _check_overlaps(recs):
         tgt.reasons.append("%s can be merged into this index" % src.index.name)
 
 
+def _check_low_value(rec, thresholds):
+    """Reads that are a tiny fraction of the writes: probably costs more than it saves."""
+    ix = rec.index
+    if rec.action != KEEP or ix.reads == 0 or ix.user_updates < thresholds.min_updates:
+        return
+    ratio = ix.reads / ix.user_updates
+    if ratio < thresholds.low_read_ratio:
+        rec.action = REVIEW
+        rec.reasons.append("reads are only %.2f%% of writes (%s reads, %s updates); it may cost more than it saves" % (
+            ratio * 100, format(ix.reads, ","), format(ix.user_updates, ",")))
+
+
 def analyse_database(database, indexes, server, config):
     th = config.thresholds
     warnings = []
@@ -211,6 +223,7 @@ def analyse_database(database, indexes, server, config):
             rec.reasons.append("disabled: it holds no data and is not maintained; drop it, or rebuild it on purpose")
         else:
             _check_unused(rec, th, server.uptime_days)
+            _check_low_value(rec, th)
         recs.append(rec)
     _check_duplicates(recs)
     _check_overlaps(recs)

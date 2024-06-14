@@ -26,7 +26,7 @@ class TextReportTest(unittest.TestCase):
 
     def test_database_summary_line(self):
         self.assertIn("Database HR: 3 indexes analysed - 0 drop, 0 consolidate, 0 review, 3 keep", self.text)
-        self.assertIn("Database Sales: 15 indexes analysed - 3 drop, 1 consolidate, 2 review, 9 keep", self.text)
+        self.assertIn("Database Sales: 15 indexes analysed - 3 drop, 1 consolidate, 3 review, 8 keep", self.text)
 
     def test_drop_candidates_come_first_with_reasons(self):
         sales = self.text.split("Database Sales")[1]
@@ -86,7 +86,7 @@ class MarkdownReportTest(unittest.TestCase):
     def test_headings_and_summary(self):
         self.assertTrue(self.text.startswith("# Index review: SQLPROD01\n"))
         self.assertIn("## Sales", self.text)
-        self.assertIn("15 indexes analysed: 3 drop, 1 consolidate, 2 review, 9 keep.", self.text)
+        self.assertIn("15 indexes analysed: 3 drop, 1 consolidate, 3 review, 8 keep.", self.text)
 
     def test_table_row(self):
         self.assertIn("| drop | `dbo.Orders.IX_Orders_Date_Copy` | 39.1 MB | 0 | 480 | "
