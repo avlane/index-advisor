@@ -13,6 +13,11 @@ def _ordered(recs, show_keep):
     return sorted(shown, key=lambda r: (ACTION_ORDER[r.action], -r.index.size_mb, r.index.full_name))
 
 
+def _totals_sentence(totals):
+    return "%d indexes analysed. The %d recommended for dropping hold %s and absorbed %s writes since the last restart." % (
+        totals["indexes"], totals["by_action"]["drop"], _mb(totals["drop_size_mb"]), format(totals["drop_updates"], ","))
+
+
 def render_text(report, show_keep=False):
     server = report.server
     lines = [
@@ -35,8 +40,7 @@ def render_text(report, show_keep=False):
         lines.append("Database %s could not be read: %s" % (database, message))
     totals = report.totals()
     lines.append("")
-    lines.append("%d indexes analysed. Indexes recommended for dropping hold %s." % (
-        totals["indexes"], _mb(totals["drop_size_mb"])))
+    lines.append(_totals_sentence(totals))
     return "\n".join(lines) + "\n"
 
 
@@ -115,8 +119,7 @@ def render_markdown(report, show_keep=False):
     for database, message in report.errors:
         lines += ["", "**%s could not be read:** %s" % (_cell(database), _cell(message))]
     totals = report.totals()
-    lines += ["", "%d indexes analysed. Indexes recommended for dropping hold %s." % (
-        totals["indexes"], _mb(totals["drop_size_mb"]))]
+    lines += ["", _totals_sentence(totals)]
     return "\n".join(lines) + "\n"
 
 

@@ -105,3 +105,17 @@ class MarkdownReportTest(unittest.TestCase):
         rec = [r for r in report.databases[1].recommendations if r.action == "drop"][0]
         rec.reasons.append("a | b")
         self.assertIn("a \\| b", render(report, "markdown"))
+
+
+class TotalsTest(unittest.TestCase):
+    def test_totals_include_dropped_writes(self):
+        totals = build_report().totals()
+        self.assertEqual(totals["by_action"]["drop"], 3)
+        self.assertEqual(totals["drop_updates"], 480 * 3)
+        self.assertEqual(totals["drop_size_mb"], 118.8)
+
+    def test_sentence_in_text_and_markdown(self):
+        sentence = ("18 indexes analysed. The 3 recommended for dropping hold 118.8 MB and absorbed 1,440 writes "
+                    "since the last restart.")
+        self.assertIn(sentence, render(build_report(), "text"))
+        self.assertIn(sentence, render(build_report(), "markdown"))

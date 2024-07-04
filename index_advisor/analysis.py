@@ -242,8 +242,11 @@ class Report:
     def totals(self):
         counts = {KEEP: 0, DROP: 0, CONSOLIDATE: 0, REVIEW: 0}
         reclaimable = 0.0
+        writes = 0
         for db in self.databases:
             for action, n in db.counts().items():
                 counts[action] += n
             reclaimable += sum(r.index.size_mb for r in db.recommendations if r.action == DROP)
-        return {"indexes": sum(counts.values()), "by_action": counts, "drop_size_mb": round(reclaimable, 1)}
+            writes += sum(r.index.user_updates for r in db.recommendations if r.action == DROP)
+        return {"indexes": sum(counts.values()), "by_action": counts, "drop_size_mb": round(reclaimable, 1),
+                "drop_updates": writes}
