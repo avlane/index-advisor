@@ -7,7 +7,7 @@ from . import __version__
 from .analysis import Report, analyse_database
 from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
-from .queries import fetch_databases, fetch_indexes, fetch_server_info
+from .queries import fetch_databases, fetch_foreign_keys, fetch_indexes, fetch_server_info
 from .report import render
 from .scripts import generate_scripts
 
@@ -98,10 +98,11 @@ def main(argv=None, connect=None, stdout=None):
         for name in names:
             try:
                 indexes = fetch_indexes(conn, name)
+                foreign_keys = fetch_foreign_keys(conn, name)
             except Exception as exc:
                 errors.append((name, str(exc)))
                 continue
-            analyses.append(analyse_database(name, indexes, server, config))
+            analyses.append(analyse_database(name, indexes, server, config, foreign_keys))
     finally:
         conn.close()
     report = Report(server, analyses, errors)

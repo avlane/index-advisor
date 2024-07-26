@@ -47,6 +47,7 @@ class FakeConnection:
             ("sys.dm_db_index_usage_stats", lambda c: c.db_rows("indexes")),
             ("sys.index_columns", lambda c: c.db_rows("columns")),
             ("sys.dm_db_missing_index_details", lambda c: c.doc["missing"]),
+            ("sys.foreign_key_columns", lambda c: c.db_rows("foreign_keys")),
         ]
 
     def db_rows(self, key):

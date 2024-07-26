@@ -97,3 +97,13 @@ class MissingIndex:
     @property
     def table_name(self):
         return "%s.%s" % (self.schema, self.table)
+
+
+@dataclass
+class ForeignKey:
+    """A foreign key on a child table; the index that supports it leads with `columns`."""
+
+    name: str
+    object_id: int
+    columns: list
+    referenced_table: str

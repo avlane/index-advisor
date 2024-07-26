@@ -205,7 +205,32 @@ def _check_low_value(rec, thresholds):
             ratio * 100, format(ix.reads, ","), format(ix.user_updates, ",")))
 
 
-def analyse_database(database, indexes, server, config):
+def _supports(ix, fk):
+    """Does the index lead with the foreign key columns (in any order)?"""
+    n = len(fk.columns)
+    lead = [c.name.lower() for c in ix.keys[:n]]
+    return ix.object_id == fk.object_id and len(lead) == n and set(lead) == {c.lower() for c in fk.columns}
+
+
+def _check_foreign_keys(recs, foreign_keys):
+    """Dropping the only index that leads with a foreign key's columns slows deletes and updates of the parent."""
+    for rec in recs:
+        if rec.action not in (DROP, CONSOLIDATE):
+            continue
+        for fk in foreign_keys:
+            if not _supports(rec.index, fk):
+                continue
+            others = [o for o in recs if o is not rec and o.action not in (DROP, CONSOLIDATE) and _supports(o.index, fk)]
+            if others:
+                rec.reasons.append("foreign key %s is also supported by %s" % (fk.name, others[0].index.name))
+            else:
+                rec.action = REVIEW
+                rec.reasons.append(
+                    "it is the only index leading with the columns of foreign key %s (to %s); without it, deletes and "
+                    "updates of the referenced rows scan this table" % (fk.name, fk.referenced_table))
+
+
+def analyse_database(database, indexes, server, config, foreign_keys=()):
     th = config.thresholds
     warnings = []
     if server.uptime_days < th.min_uptime_days:
@@ -227,6 +252,7 @@ def analyse_database(database, indexes, server, config):
         recs.append(rec)
     _check_duplicates(recs)
     _check_overlaps(recs)
+    _check_foreign_keys(recs, foreign_keys)
     _add_usage_notes(recs)
     return DatabaseAnalysis(database, recs, warnings)
 

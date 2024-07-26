@@ -5,7 +5,7 @@ queries run after a USE of that database.
 """
 from datetime import datetime
 
-from .model import Index, IndexColumn, MissingIndex, ServerInfo
+from .model import ForeignKey, Index, IndexColumn, MissingIndex, ServerInfo
 from .sqlnames import quote_name
 
 SERVER_SQL = """
@@ -229,5 +229,32 @@ def fetch_missing_indexes(conn):
     try:
         cur.execute(MISSING_SQL)
         return [missing_from_row(row) for row in rows_as_dicts(cur)]
+    finally:
+        cur.close()
+
+
+FK_SQL = """
+SELECT fk.name AS fk_name, fk.parent_object_id AS object_id, fkc.constraint_column_id, c.name AS column_name,
+       OBJECT_SCHEMA_NAME(fk.referenced_object_id) + N'.' + OBJECT_NAME(fk.referenced_object_id) AS referenced_table
+FROM sys.foreign_keys AS fk
+JOIN sys.foreign_key_columns AS fkc ON fkc.constraint_object_id = fk.object_id
+JOIN sys.columns AS c ON c.object_id = fkc.parent_object_id AND c.column_id = fkc.parent_column_id
+ORDER BY fk.object_id, fk.name, fkc.constraint_column_id;
+"""
+
+
+def fetch_foreign_keys(conn, database):
+    cur = conn.cursor()
+    try:
+        cur.execute("USE " + quote_name(database))
+        cur.execute(FK_SQL)
+        found = {}
+        for row in rows_as_dicts(cur):
+            key = (int(row["object_id"]), row["fk_name"])
+            fk = found.get(key)
+            if fk is None:
+                fk = found[key] = ForeignKey(row["fk_name"], int(row["object_id"]), [], row["referenced_table"])
+            fk.columns.append(row["column_name"])
+        return list(found.values())
     finally:
         cur.close()
