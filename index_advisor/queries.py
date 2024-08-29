@@ -258,3 +258,38 @@ def fetch_foreign_keys(conn, database):
         return list(found.values())
     finally:
         cur.close()
+
+
+PHYSICAL_SQL = """
+SELECT ips.object_id, ips.index_id, ips.avg_fragmentation_in_percent, ips.page_count
+FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'LIMITED') AS ips
+WHERE ips.index_id > 0
+  AND ips.index_level = 0
+  AND ips.alloc_unit_type_desc = 'IN_ROW_DATA'
+  AND ips.page_count >= ?;
+"""
+
+
+def attach_physical(conn, database, indexes, min_pages=1000):
+    """Add leaf-level fragmentation to the indexes (LIMITED mode, indexes of at least min_pages pages).
+
+    This reads a lot of metadata on a big database; run it off-hours. Partitions of
+    one index are combined into a page-weighted average.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute("USE " + quote_name(database))
+        cur.execute(PHYSICAL_SQL, min_pages)
+        totals = {}
+        for row in rows_as_dicts(cur):
+            key = (int(row["object_id"]), int(row["index_id"]))
+            pages = int(row["page_count"] or 0)
+            weighted, seen = totals.get(key, (0.0, 0))
+            totals[key] = (weighted + float(row["avg_fragmentation_in_percent"] or 0) * pages, seen + pages)
+        for ix in indexes:
+            weighted, pages = totals.get((ix.object_id, ix.index_id), (0.0, 0))
+            if pages:
+                ix.fragmentation = weighted / pages
+                ix.page_count = pages
+    finally:
+        cur.close()

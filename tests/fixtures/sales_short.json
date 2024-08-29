@@ -56,7 +56,11 @@
         {"object_id": 1003, "index_id": 3, "column_name": "Region", "key_ordinal": 1, "is_descending_key": 0, "is_included_column": 0},
         {"object_id": 1003, "index_id": 4, "column_name": "LastName", "key_ordinal": 1, "is_descending_key": 0, "is_included_column": 0}
       ],
-      "physical": [],
+      "physical": [
+        {"object_id": 1001, "index_id": 1, "avg_fragmentation_in_percent": 12.5, "page_count": 40000},
+        {"object_id": 1001, "index_id": 2, "avg_fragmentation_in_percent": 62.0, "page_count": 5200},
+        {"object_id": 1002, "index_id": 3, "avg_fragmentation_in_percent": 45.3, "page_count": 26000}
+      ],
       "foreign_keys": [
         {"fk_name": "FK_Orders_Customers", "object_id": 1001, "constraint_column_id": 1, "column_name": "CustomerID", "referenced_table": "dbo.Customers"},
         {"fk_name": "FK_OrderLines_Orders", "object_id": 1002, "constraint_column_id": 1, "column_name": "OrderID", "referenced_table": "dbo.Orders"},

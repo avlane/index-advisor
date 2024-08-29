@@ -230,6 +230,18 @@ def _check_foreign_keys(recs, foreign_keys):
                     "updates of the referenced rows scan this table" % (fk.name, fk.referenced_table))
 
 
+def _add_physical_notes(recs):
+    for rec in recs:
+        ix = rec.index
+        if ix.fragmentation is None:
+            continue
+        detail = "%.0f%% fragmented over %s pages" % (ix.fragmentation, format(ix.page_count, ","))
+        if rec.action in (DROP, CONSOLIDATE):
+            rec.reasons.append("%s: do not spend a rebuild on it before the change" % detail)
+        elif rec.action == KEEP and ix.fragmentation >= 30:
+            rec.reasons.append("%s: a candidate for REBUILD or REORGANIZE" % detail)
+
+
 def analyse_database(database, indexes, server, config, foreign_keys=()):
     th = config.thresholds
     warnings = []
@@ -254,6 +266,7 @@ def analyse_database(database, indexes, server, config, foreign_keys=()):
     _check_overlaps(recs)
     _check_foreign_keys(recs, foreign_keys)
     _add_usage_notes(recs)
+    _add_physical_notes(recs)
     return DatabaseAnalysis(database, recs, warnings)
 
 

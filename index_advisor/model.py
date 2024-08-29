@@ -52,6 +52,8 @@ class Index:
     last_user_read: Optional[datetime] = None
     last_user_update: Optional[datetime] = None
     has_usage_row: bool = False
+    fragmentation: Optional[float] = None  # percent, from --physical
+    page_count: int = 0  # leaf pages seen by --physical
     keys: list = field(default_factory=list)  # IndexColumn, in key order
     includes: list = field(default_factory=list)  # column names
 

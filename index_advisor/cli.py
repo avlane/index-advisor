@@ -7,7 +7,7 @@ from . import __version__
 from .analysis import Report, analyse_database
 from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
-from .queries import fetch_databases, fetch_foreign_keys, fetch_indexes, fetch_server_info
+from .queries import attach_physical, fetch_databases, fetch_foreign_keys, fetch_indexes, fetch_server_info
 from .report import render
 from .scripts import generate_scripts
 
@@ -37,6 +37,11 @@ def build_parser():
     p.add_argument("--format", choices=("text", "json", "markdown"), default="text", help="report format (default: text)")
     p.add_argument("-o", "--output", help="write the report to this file instead of stdout")
     p.add_argument("--show-keep", action="store_true", help="also list the indexes that should be kept")
+    p.add_argument("--physical", action="store_true",
+                   help="also read index fragmentation (sys.dm_db_index_physical_stats, LIMITED mode); "
+                        "slow on large databases")
+    p.add_argument("--min-pages", type=int, default=1000, metavar="N",
+                   help="with --physical, ignore indexes smaller than N pages (default: %(default)s)")
     p.add_argument("--scripts-dir", metavar="DIR",
                    help="write review scripts (drop candidates, rollback, consolidation) into DIR; nothing is run")
     p.add_argument("--user", help="SQL login; the password is read from INDEX_ADVISOR_PASSWORD")
@@ -99,6 +104,8 @@ def main(argv=None, connect=None, stdout=None):
             try:
                 indexes = fetch_indexes(conn, name)
                 foreign_keys = fetch_foreign_keys(conn, name)
+                if args.physical:
+                    attach_physical(conn, name, indexes, args.min_pages)
             except Exception as exc:
                 errors.append((name, str(exc)))
                 continue
