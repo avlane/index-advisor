@@ -4,10 +4,12 @@ import os
 import sys
 
 from . import __version__
-from .analysis import Report, analyse_database
+from .analysis import KEEP, REVIEW, Report, analyse_database
 from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
-from .queries import attach_physical, fetch_databases, fetch_foreign_keys, fetch_indexes, fetch_server_info
+from .missing import suggest
+from .queries import (attach_physical, fetch_databases, fetch_foreign_keys, fetch_indexes,
+                      fetch_missing_indexes, fetch_server_info)
 from .report import render
 from .scripts import generate_scripts
 
@@ -100,6 +102,11 @@ def main(argv=None, connect=None, stdout=None):
         except Exception as exc:
             return _error("query failed: %s" % exc)
         analyses, errors = [], []
+        try:
+            missing = fetch_missing_indexes(conn)
+        except Exception as exc:
+            missing = []
+            errors.append(("(missing-index DMVs)", str(exc)))
         for name in names:
             try:
                 indexes = fetch_indexes(conn, name)
@@ -109,7 +116,10 @@ def main(argv=None, connect=None, stdout=None):
             except Exception as exc:
                 errors.append((name, str(exc)))
                 continue
-            analyses.append(analyse_database(name, indexes, server, config, foreign_keys))
+            analysis = analyse_database(name, indexes, server, config, foreign_keys)
+            survivors = [r.index for r in analysis.recommendations if r.action in (KEEP, REVIEW)]
+            analysis.suggestions = suggest(missing, config.thresholds, name, survivors)
+            analyses.append(analysis)
     finally:
         conn.close()
     report = Report(server, analyses, errors)

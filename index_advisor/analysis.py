@@ -20,6 +20,7 @@ class DatabaseAnalysis:
     database: str
     recommendations: list
     warnings: list = field(default_factory=list)
+    suggestions: list = field(default_factory=list)  # missing-index suggestions (not applied)
 
     def counts(self):
         counts = {KEEP: 0, DROP: 0, CONSOLIDATE: 0, REVIEW: 0}

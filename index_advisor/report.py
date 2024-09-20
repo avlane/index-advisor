@@ -35,6 +35,17 @@ def render_text(report, show_keep=False):
             lines.append("  %-11s %s (%s)" % (rec.action.upper(), rec.index.full_name, _mb(rec.index.size_mb)))
             for reason in rec.reasons:
                 lines.append("      - " + reason)
+        if db.suggestions:
+            lines.append("  Missing index suggestions (not applied):")
+            for s in db.suggestions:
+                lines.append("    %s ON %s.%s (%s)%s" % (
+                    s.name, s.missing.schema, s.missing.table, ", ".join(s.keys),
+                    " INCLUDE (%s)" % ", ".join(s.includes) if s.includes else ""))
+                lines.append("        score %s: %s uses, average cost %.1f, average impact %.0f%%" % (
+                    format(round(s.score), ","), format(s.missing.seeks + s.missing.scans, ","),
+                    s.missing.avg_cost, s.missing.avg_impact))
+                for note in s.notes:
+                    lines.append("        - " + note)
     for database, message in report.errors:
         lines.append("")
         lines.append("Database %s could not be read: %s" % (database, message))
@@ -62,6 +73,24 @@ def _recommendation_doc(rec):
     }
 
 
+def _suggestion_doc(s):
+    m = s.missing
+    return {
+        "name": s.name,
+        "schema": m.schema,
+        "table": m.table,
+        "keys": s.keys,
+        "includes": s.includes,
+        "score": round(s.score),
+        "uses": m.seeks + m.scans,
+        "avg_cost": m.avg_cost,
+        "avg_impact": m.avg_impact,
+        "extends": s.extends.name if s.extends else None,
+        "add_columns": s.add_columns,
+        "notes": s.notes,
+    }
+
+
 def render_json(report, show_keep=False):
     """All recommendations, including keep: consumers filter on `action` themselves."""
     server = report.server
@@ -81,6 +110,7 @@ def render_json(report, show_keep=False):
                 "counts": db.counts(),
                 "warnings": db.warnings,
                 "recommendations": [_recommendation_doc(r) for r in _ordered(db.recommendations, True)],
+                "suggestions": [_suggestion_doc(s) for s in db.suggestions],
             }
             for db in report.databases
         ],
@@ -116,6 +146,13 @@ def render_markdown(report, show_keep=False):
                 lines.append("| %s | `%s` | %s | %s | %s | %s |" % (
                     rec.action, ix.full_name, _mb(ix.size_mb), format(ix.reads, ","), format(ix.user_updates, ","),
                     "<br>".join(_cell(r) for r in rec.reasons)))
+        if db.suggestions:
+            lines += ["", "Missing index suggestions (not applied):", "",
+                      "| Suggested index | Keys | Include | Score | Notes |", "| --- | --- | --- | ---: | --- |"]
+            for s in db.suggestions:
+                lines.append("| `%s` on `%s.%s` | %s | %s | %s | %s |" % (
+                    s.name, s.missing.schema, s.missing.table, _cell(", ".join(s.keys)),
+                    _cell(", ".join(s.includes)), format(round(s.score), ","), "<br>".join(_cell(n) for n in s.notes)))
     for database, message in report.errors:
         lines += ["", "**%s could not be read:** %s" % (_cell(database), _cell(message))]
     totals = report.totals()
