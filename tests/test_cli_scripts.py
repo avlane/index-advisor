@@ -25,7 +25,8 @@ class ScriptsDirTest(unittest.TestCase):
             code, conn = self.run_cli(target)
             self.assertEqual(code, 0)
             self.assertEqual(sorted(os.listdir(target)), [
-                "Sales.consolidate.sql", "Sales.drop-candidates.sql", "Sales.recreate-dropped.sql"])
+                "HR.missing-indexes.sql", "Sales.consolidate.sql", "Sales.drop-candidates.sql",
+                "Sales.missing-indexes.sql", "Sales.recreate-dropped.sql"])
             with open(os.path.join(target, "Sales.drop-candidates.sql"), encoding="utf-8") as fh:
                 text = fh.read()
             self.assertIn("-- DROP INDEX [IX_Orders_Date_Copy] ON [dbo].[Orders];", text)

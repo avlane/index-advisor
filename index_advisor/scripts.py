@@ -117,6 +117,8 @@ def generate_scripts(report):
             files[stem + ".recreate-dropped.sql"] = recreate_script(analysis, report.server)
         if merge_plans(analysis):
             files[stem + ".consolidate.sql"] = consolidate_script(analysis, report.server)
+        if analysis.suggestions:
+            files[stem + ".missing-indexes.sql"] = missing_script(analysis, report.server)
     return files
 
 
@@ -161,5 +163,43 @@ def consolidate_script(analysis, server):
         lines.append("--   " + create_statement(ix, drop_existing=True))
         for source in sources:
             lines.append("--   " + create_statement(source.index))
+        lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def new_index_statement(suggestion):
+    sql = "CREATE NONCLUSTERED INDEX %s ON %s.%s (%s)" % (
+        quote_name(suggestion.name), quote_name(suggestion.missing.schema), quote_name(suggestion.missing.table),
+        ", ".join(quote_name(k) for k in suggestion.keys))
+    if suggestion.includes:
+        sql += " INCLUDE (%s)" % ", ".join(quote_name(c) for c in suggestion.includes)
+    return sql + ";"
+
+
+def missing_script(analysis, server):
+    lines = [
+        _header(analysis, server).rstrip("\n"),
+        "-- Suggestions from the missing-index DMVs. They are based on single query plans, ignore the other",
+        "-- indexes on the table, and are cleared by a restart or a change to the table. Treat them as hints:",
+        "-- compare them with the existing indexes, create at most one index per table at a time, and measure",
+        "-- the effect on writes. Every statement is commented out.",
+        "",
+        "USE %s;" % quote_name(analysis.database),
+        "GO",
+        "",
+    ]
+    for s in analysis.suggestions:
+        m = s.missing
+        lines.append("-- %s.%s: score %s, %s uses, average cost %.1f, average impact %.0f%%" % (
+            one_line(m.schema), one_line(m.table), format(round(s.score), ","), format(m.seeks + m.scans, ","),
+            m.avg_cost, m.avg_impact))
+        for note in s.notes:
+            lines.append("--   " + one_line(note))
+        if s.extends is None:
+            lines.append("-- " + new_index_statement(s))
+        elif s.add_columns:
+            widened = s.extends.includes + s.add_columns
+            lines.append("-- " + create_statement(s.extends, includes=widened, drop_existing=True))
+            lines.append("-- Rollback: " + create_statement(s.extends, drop_existing=True))
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
