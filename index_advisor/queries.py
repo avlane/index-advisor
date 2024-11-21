@@ -32,6 +32,8 @@ INDEX_SQL = """
 SELECT o.object_id, s.name AS schema_name, o.name AS table_name, i.name AS index_name, i.index_id,
        i.type_desc, i.is_unique, i.is_primary_key, i.is_unique_constraint, i.is_disabled,
        i.filter_definition, i.fill_factor,
+       ds.name AS data_space, ds.type AS data_space_type, ds.is_default AS data_space_is_default,
+       CASE WHEN pc.min_compression = pc.max_compression THEN pc.min_compression ELSE N'MIXED' END AS compression,
        ps.row_count, ps.used_pages,
        CASE WHEN u.index_id IS NULL THEN 0 ELSE 1 END AS has_usage_row,
        u.user_seeks, u.user_scans, u.user_lookups, u.user_updates,
@@ -44,6 +46,13 @@ LEFT JOIN (
     FROM sys.dm_db_partition_stats
     GROUP BY object_id, index_id
 ) AS ps ON ps.object_id = i.object_id AND ps.index_id = i.index_id
+LEFT JOIN sys.data_spaces AS ds ON ds.data_space_id = i.data_space_id
+LEFT JOIN (
+    SELECT object_id, index_id,
+           MIN(data_compression_desc) AS min_compression, MAX(data_compression_desc) AS max_compression
+    FROM sys.partitions
+    GROUP BY object_id, index_id
+) AS pc ON pc.object_id = i.object_id AND pc.index_id = i.index_id
 LEFT JOIN sys.dm_db_index_usage_stats AS u
        ON u.database_id = DB_ID() AND u.object_id = i.object_id AND u.index_id = i.index_id
 WHERE o.is_ms_shipped = 0
@@ -98,6 +107,10 @@ def index_from_row(database, row):
         last_user_read=_latest(row["last_user_seek"], row["last_user_scan"], row["last_user_lookup"]),
         last_user_update=_latest(row["last_user_update"]),
         has_usage_row=bool(row["has_usage_row"]),
+        data_space=row.get("data_space"),
+        data_space_type=row.get("data_space_type"),
+        data_space_is_default=bool(row.get("data_space_is_default", True)),
+        compression=row.get("compression"),
     )
 
 
@@ -128,9 +141,11 @@ def attach_columns(indexes, rows):
         ix = by_id.get((int(row["object_id"]), int(row["index_id"])))
         if ix is None:
             continue
+        if row.get("partition_ordinal"):
+            ix.partition_column = row["column_name"]
         if row["is_included_column"]:
             ix.includes.append(row["column_name"])
-        else:
+        elif row["key_ordinal"]:
             ix.keys.append(IndexColumn(row["column_name"], bool(row["is_descending_key"])))
 
 
@@ -150,12 +165,12 @@ def fetch_indexes(conn, database):
 
 COLUMNS_SQL = """
 SELECT ic.object_id, ic.index_id, c.name AS column_name, ic.key_ordinal,
-       ic.is_descending_key, ic.is_included_column
+       ic.is_descending_key, ic.is_included_column, ic.partition_ordinal
 FROM sys.index_columns AS ic
 JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
 JOIN sys.objects AS o ON o.object_id = ic.object_id
 WHERE o.is_ms_shipped = 0
-  AND (ic.key_ordinal > 0 OR ic.is_included_column = 1)
+  AND (ic.key_ordinal > 0 OR ic.is_included_column = 1 OR ic.partition_ordinal > 0)
 ORDER BY ic.object_id, ic.index_id, ic.is_included_column, ic.key_ordinal, ic.index_column_id;
 """
 

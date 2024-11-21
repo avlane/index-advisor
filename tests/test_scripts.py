@@ -74,7 +74,7 @@ class RecreateScriptTest(unittest.TestCase):
         self.assertIn("CREATE NONCLUSTERED INDEX [IX_Unused] ON [dbo].[Orders] ([A], [B] DESC) "
                       "INCLUDE ([C]) WITH (FILLFACTOR = 80);", text)
         self.assertNotIn("IX_Used", text)
-        self.assertIn("Not captured: partitioning, compression", text)
+        self.assertIn("Not captured: per-partition compression", text)
 
 
 class GenerateScriptsTest(unittest.TestCase):

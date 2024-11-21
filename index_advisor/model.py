@@ -43,6 +43,11 @@ class Index:
     is_disabled: bool = False
     filter_definition: Optional[str] = None
     fill_factor: int = 0
+    data_space: Optional[str] = None  # filegroup or partition scheme name
+    data_space_type: Optional[str] = None  # "FG" or "PS"
+    data_space_is_default: bool = True
+    partition_column: Optional[str] = None
+    compression: Optional[str] = None  # NONE, ROW, PAGE, or MIXED when partitions differ
     row_count: int = 0
     used_pages: int = 0
     user_seeks: int = 0

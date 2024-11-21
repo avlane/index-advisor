@@ -31,6 +31,15 @@ def drop_statement(ix):
     return "DROP INDEX %s ON %s;" % (quote_name(ix.name), table_ref(ix))
 
 
+def _storage_clause(ix):
+    """ON <partition scheme>(<column>) or ON <filegroup>, so a recreated index lands where it was."""
+    if ix.data_space_type == "PS" and ix.data_space and ix.partition_column:
+        return " ON %s(%s)" % (quote_name(ix.data_space), quote_name(ix.partition_column))
+    if ix.data_space_type == "FG" and ix.data_space and not ix.data_space_is_default:
+        return " ON %s" % quote_name(ix.data_space)
+    return ""
+
+
 def create_statement(ix, includes=None, drop_existing=False):
     """CREATE INDEX for a rowstore nonclustered index.
 
@@ -49,11 +58,13 @@ def create_statement(ix, includes=None, drop_existing=False):
     options = []
     if ix.fill_factor:
         options.append("FILLFACTOR = %d" % ix.fill_factor)
+    if ix.compression in ("ROW", "PAGE"):
+        options.append("DATA_COMPRESSION = %s" % ix.compression)
     if drop_existing:
         options.append("DROP_EXISTING = ON")
     if options:
         sql += " WITH (%s)" % ", ".join(options)
-    return sql + ";"
+    return sql + _storage_clause(ix) + ";"
 
 
 def _header(analysis, server):
@@ -93,7 +104,8 @@ def recreate_script(analysis, server):
     lines = [
         _header(analysis, server).rstrip("\n"),
         "-- Rollback: recreates the indexes listed in drop-candidates.sql from the metadata read at the time.",
-        "-- Not captured: partitioning, compression, filegroup and other WITH options. Compare with the",
+        "-- Captured: keys, included columns, filter, fill factor, filegroup or partition scheme, and uniform",
+        "-- data compression. Not captured: per-partition compression and other WITH options. Compare with the",
         "-- original definition (for example scripted from SSMS) before relying on this for a large table.",
         "",
         "USE %s;" % quote_name(analysis.database),
@@ -102,6 +114,8 @@ def recreate_script(analysis, server):
     ]
     for rec in recs:
         lines.append("-- %s" % one_line(rec.index.full_name))
+        if rec.index.compression == "MIXED":
+            lines.append("-- NOTE: the partitions use different compression settings; set DATA_COMPRESSION per partition.")
         lines.append(create_statement(rec.index))
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
