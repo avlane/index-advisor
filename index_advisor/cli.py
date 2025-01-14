@@ -72,9 +72,10 @@ def _error(message):
     return EXIT_ERROR
 
 
-def _select(names, wanted):
+def _select(names, wanted, config):
+    """Explicitly named databases win over [exclude] databases."""
     if not wanted:
-        return names
+        return [n for n in names if not config.database_excluded(n)]
     lookup = {n.lower(): n for n in names}
     missing = [w for w in wanted if w.lower() not in lookup]
     if missing:
@@ -96,7 +97,7 @@ def main(argv=None, connect=None, stdout=None):
     try:
         try:
             server = fetch_server_info(conn)
-            names = _select(fetch_databases(conn), args.database)
+            names = _select(fetch_databases(conn), args.database, config)
         except LookupError as exc:
             return _error(exc)
         except Exception as exc:

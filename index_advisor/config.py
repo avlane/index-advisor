@@ -1,4 +1,5 @@
-"""Thresholds for the recommendations, read from a TOML file."""
+"""Thresholds and exclusions for the recommendations, read from a TOML file."""
+import fnmatch
 import tomllib
 from dataclasses import dataclass, field, replace
 
@@ -15,9 +16,26 @@ class Thresholds:
     min_missing_score: float = 10000.0  # cost * impact * uses below this is not worth a suggestion
 
 
+def _matches(value, patterns):
+    value = value.lower()
+    return any(fnmatch.fnmatchcase(value, pattern.lower()) for pattern in patterns)
+
+
 @dataclass
 class Config:
     thresholds: Thresholds = field(default_factory=Thresholds)
+    exclude_databases: list = field(default_factory=list)  # patterns for database names
+    exclude_tables: list = field(default_factory=list)  # patterns for schema.table
+    keep_indexes: list = field(default_factory=list)  # patterns for database.schema.table.index
+
+    def database_excluded(self, name):
+        return _matches(name, self.exclude_databases)
+
+    def table_excluded(self, schema, table):
+        return _matches("%s.%s" % (schema, table), self.exclude_tables)
+
+    def index_kept(self, ix):
+        return _matches("%s.%s" % (ix.database, ix.full_name), self.keep_indexes)
 
 
 _THRESHOLD_TYPES = {
@@ -28,22 +46,41 @@ _THRESHOLD_TYPES = {
 }
 
 
+def _table(data, key, allowed):
+    section = data.get(key, {})
+    if not isinstance(section, dict):
+        raise ConfigError("[%s] must be a table" % key)
+    unknown = set(section) - set(allowed)
+    if unknown:
+        raise ConfigError("[%s]: unknown key(s): %s" % (key, ", ".join(sorted(unknown))))
+    return section
+
+
+def _patterns(section, key, where):
+    value = section.get(key, [])
+    if not isinstance(value, list) or not all(isinstance(p, str) and p.strip() for p in value):
+        raise ConfigError("%s %s must be a list of non-empty patterns" % (where, key))
+    return list(value)
+
+
 def parse_config(data):
     if not isinstance(data, dict):
         raise ConfigError("the top level of the config must be a table")
-    unknown = set(data) - {"thresholds"}
+    unknown = set(data) - {"thresholds", "exclude", "keep"}
     if unknown:
         raise ConfigError("unknown key(s): %s" % ", ".join(sorted(unknown)))
-    section = data.get("thresholds", {})
-    if not isinstance(section, dict):
-        raise ConfigError("[thresholds] must be a table")
-    unknown = set(section) - set(_THRESHOLD_TYPES)
-    if unknown:
-        raise ConfigError("[thresholds]: unknown key(s): %s" % ", ".join(sorted(unknown)))
+    section = _table(data, "thresholds", _THRESHOLD_TYPES)
     for key, value in section.items():
         if isinstance(value, bool) or not isinstance(value, _THRESHOLD_TYPES[key]) or value < 0:
             raise ConfigError("[thresholds] %s must be a non-negative number" % key)
-    return Config(replace(Thresholds(), **section))
+    exclude = _table(data, "exclude", ("databases", "tables"))
+    keep = _table(data, "keep", ("indexes",))
+    return Config(
+        replace(Thresholds(), **section),
+        exclude_databases=_patterns(exclude, "databases", "[exclude]"),
+        exclude_tables=_patterns(exclude, "tables", "[exclude]"),
+        keep_indexes=_patterns(keep, "indexes", "[keep]"),
+    )
 
 
 def load_config(path):

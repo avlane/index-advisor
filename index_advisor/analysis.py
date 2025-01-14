@@ -251,8 +251,12 @@ def analyse_database(database, indexes, server, config, foreign_keys=()):
             server.start_time.strftime("%Y-%m-%d %H:%M"), server.uptime_days, th.min_uptime_days))
     recs = []
     for ix in indexes:
+        if config.table_excluded(ix.schema, ix.table):
+            continue
         rec = Recommendation(ix)
         reason = _protected_reason(ix)
+        if reason is None and config.index_kept(ix):
+            reason = "listed under [keep] in the configuration"
         if reason:
             rec.protected = True
             rec.reasons.append("%s; %s reads, %s updates" % (reason, format(ix.reads, ","), format(ix.user_updates, ",")))

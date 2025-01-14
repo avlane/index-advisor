@@ -1,0 +1,20 @@
+# index-advisor configuration. Everything is optional.
+
+[thresholds]
+# Usage counters are cleared by a restart. Until the server (or, with --history, the recorded
+# history) covers this many days, "never read" indexes are review items, not drop candidates.
+min_uptime_days = 30
+# An index with at least this many writes and reads below low_read_ratio of them is a review item.
+min_updates = 1000
+low_read_ratio = 0.01
+# Missing-index suggestions need cost * impact * uses above this.
+min_missing_score = 10000
+
+[exclude]
+# Patterns use * and ?; matching is case-insensitive.
+databases = ["ReportServer*", "SSISDB"]       # database names
+tables = ["dbo.Staging_*", "audit.*"]         # schema.table
+
+[keep]
+# Never recommend dropping these. database.schema.table.index
+indexes = ["Sales.dbo.Orders.IX_Orders_MonthEnd", "*.IX_Reporting_*"]

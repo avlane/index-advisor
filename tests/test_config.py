@@ -50,3 +50,42 @@ class LoadConfigTest(unittest.TestCase):
 
     def test_default_config_object(self):
         self.assertEqual(Config().thresholds.min_updates, 1000)
+
+
+class ExclusionTest(unittest.TestCase):
+    def cfg(self):
+        return parse_config({
+            "exclude": {"databases": ["ReportServer*", "SSISDB"], "tables": ["dbo.Staging_*", "audit.*"]},
+            "keep": {"indexes": ["Sales.dbo.Orders.IX_Orders_Customer", "*.IX_Reporting_*"]},
+        })
+
+    def test_database_patterns(self):
+        cfg = self.cfg()
+        self.assertTrue(cfg.database_excluded("reportservertempdb"))
+        self.assertTrue(cfg.database_excluded("SSISDB"))
+        self.assertFalse(cfg.database_excluded("Sales"))
+
+    def test_table_patterns(self):
+        cfg = self.cfg()
+        self.assertTrue(cfg.table_excluded("dbo", "Staging_Orders"))
+        self.assertTrue(cfg.table_excluded("audit", "Anything"))
+        self.assertFalse(cfg.table_excluded("dbo", "Orders"))
+
+    def test_keep_patterns_match_the_full_index_name(self):
+        from .helpers import ix
+
+        cfg = self.cfg()
+        self.assertTrue(cfg.index_kept(ix("IX_Orders_Customer", ["A"])))
+        self.assertTrue(cfg.index_kept(ix("IX_Reporting_Month", ["A"], table="Other")))
+        self.assertFalse(cfg.index_kept(ix("IX_Other", ["A"])))
+
+    def test_bad_sections(self):
+        for bad in ({"exclude": {"databases": "Sales"}}, {"exclude": {"views": []}}, {"keep": []},
+                    {"keep": {"indexes": [""]}}):
+            with self.assertRaises(ConfigError):
+                parse_config(bad)
+
+    def test_defaults_exclude_nothing(self):
+        cfg = Config()
+        self.assertFalse(cfg.database_excluded("Sales"))
+        self.assertFalse(cfg.table_excluded("dbo", "Orders"))
