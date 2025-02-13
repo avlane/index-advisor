@@ -49,6 +49,7 @@ class FakeConnection:
             ("sys.dm_db_missing_index_details", lambda c: c.doc["missing"]),
             ("sys.foreign_key_columns", lambda c: c.db_rows("foreign_keys")),
             ("dm_db_index_physical_stats", lambda c: c.db_rows("physical")),
+            ("availability_databases_cluster", lambda c: [{"database_name": n} for n in c.doc["availability_databases"]]),
         ]
 
     def db_rows(self, key):

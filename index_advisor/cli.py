@@ -8,8 +8,8 @@ from .analysis import KEEP, REVIEW, Report, analyse_database
 from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
 from .missing import suggest
-from .queries import (attach_physical, fetch_databases, fetch_foreign_keys, fetch_indexes,
-                      fetch_missing_indexes, fetch_server_info)
+from .queries import (attach_physical, fetch_availability_databases, fetch_databases, fetch_foreign_keys,
+                      fetch_indexes, fetch_missing_indexes, fetch_server_info)
 from .report import render
 from .scripts import generate_scripts
 
@@ -108,6 +108,10 @@ def main(argv=None, connect=None, stdout=None):
         except Exception as exc:
             missing = []
             errors.append(("(missing-index DMVs)", str(exc)))
+        try:
+            ag_databases = {n.lower() for n in fetch_availability_databases(conn)}
+        except Exception:
+            ag_databases = set()  # the view does not exist before SQL Server 2012, or is not readable
         for name in names:
             try:
                 indexes = fetch_indexes(conn, name)
@@ -117,7 +121,7 @@ def main(argv=None, connect=None, stdout=None):
             except Exception as exc:
                 errors.append((name, str(exc)))
                 continue
-            analysis = analyse_database(name, indexes, server, config, foreign_keys)
+            analysis = analyse_database(name, indexes, server, config, foreign_keys, name.lower() in ag_databases)
             survivors = [r.index for r in analysis.recommendations if r.action in (KEEP, REVIEW)]
             analysis.suggestions = suggest(missing, config.thresholds, name, survivors)
             analyses.append(analysis)

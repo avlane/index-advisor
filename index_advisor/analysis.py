@@ -51,13 +51,21 @@ def _protected_reason(ix):
     return None
 
 
-def _check_unused(rec, thresholds, uptime_days):
+AG_WARNING = (
+    "This database is in an availability group. Index usage counters are kept per replica, so reads on "
+    "readable secondaries are not included; check the other replicas before dropping an index that looks unused.")
+
+
+def _check_unused(rec, thresholds, uptime_days, ag=False):
     ix = rec.index
     if ix.reads == 0 and ix.user_updates > 0:
         if uptime_days < thresholds.min_uptime_days:
             rec.action = REVIEW
             rec.reasons.append("no reads recorded, but the counters only cover %.1f days since the last "
                                "restart" % uptime_days)
+        elif ag:
+            rec.action = REVIEW
+            rec.reasons.append("no reads recorded on this replica, but the database is in an availability group")
         else:
             rec.action = DROP
             rec.reasons.append("no reads recorded, but %s updates keep it maintained" % format(ix.user_updates, ","))
@@ -243,9 +251,11 @@ def _add_physical_notes(recs):
             rec.reasons.append("%s: a candidate for REBUILD or REORGANIZE" % detail)
 
 
-def analyse_database(database, indexes, server, config, foreign_keys=()):
+def analyse_database(database, indexes, server, config, foreign_keys=(), in_availability_group=False):
     th = config.thresholds
     warnings = []
+    if in_availability_group:
+        warnings.append(AG_WARNING)
     if server.uptime_days < th.min_uptime_days:
         warnings.append(STATS_RESET_WARNING % (
             server.start_time.strftime("%Y-%m-%d %H:%M"), server.uptime_days, th.min_uptime_days))
@@ -264,7 +274,7 @@ def analyse_database(database, indexes, server, config, foreign_keys=()):
             rec.action = REVIEW
             rec.reasons.append("disabled: it holds no data and is not maintained; drop it, or rebuild it on purpose")
         else:
-            _check_unused(rec, th, server.uptime_days)
+            _check_unused(rec, th, server.uptime_days, in_availability_group)
             _check_low_value(rec, th)
         recs.append(rec)
     _check_duplicates(recs)

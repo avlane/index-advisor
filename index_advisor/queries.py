@@ -308,3 +308,20 @@ def attach_physical(conn, database, indexes, min_pages=1000):
                 ix.page_count = pages
     finally:
         cur.close()
+
+
+AG_SQL = """
+SELECT DISTINCT database_name
+FROM sys.availability_databases_cluster
+ORDER BY database_name;
+"""
+
+
+def fetch_availability_databases(conn):
+    """Names of databases that belong to an availability group (SQL Server 2012 and later)."""
+    cur = conn.cursor()
+    try:
+        cur.execute(AG_SQL)
+        return [row["database_name"] for row in rows_as_dicts(cur)]
+    finally:
+        cur.close()
