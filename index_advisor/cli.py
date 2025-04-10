@@ -7,7 +7,7 @@ from . import __version__
 from .collect import analyse_collection, collect
 from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
-from .history import HistoryError, record_history
+from .history import HistoryError, apply_history, record_history
 from .report import render
 from .scripts import generate_scripts
 
@@ -105,7 +105,7 @@ def main(argv=None, connect=None, stdout=None):
         conn.close()
     if args.history:
         try:
-            record_history(args.history, collection)
+            apply_history(record_history(args.history, collection), collection)
         except HistoryError as exc:
             return _error(exc)
     report = analyse_collection(collection, config)

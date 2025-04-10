@@ -24,6 +24,8 @@ def render_text(report, show_keep=False):
         "index-advisor report for %s" % (server.server_name or "(unknown server)"),
         "SQL Server started %s (%.1f days ago)" % (server.start_time.strftime("%Y-%m-%d %H:%M"), server.uptime_days),
     ]
+    if server.observed_days is not None:
+        lines.append("Usage history covers %.1f days across restarts" % server.observed_days)
     for db in report.databases:
         counts = db.counts()
         lines.append("")
@@ -102,6 +104,7 @@ def render_json(report, show_keep=False):
             "started": server.start_time.isoformat(timespec="seconds"),
             "now": server.now.isoformat(timespec="seconds"),
             "uptime_days": round(server.uptime_days, 1),
+            "observed_days": None if server.observed_days is None else round(server.observed_days, 1),
         },
         "totals": report.totals(),
         "databases": [

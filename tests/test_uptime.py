@@ -14,7 +14,7 @@ class StatsResetTest(unittest.TestCase):
         result = analyse(self.indexes(), uptime_days=5)
         rec = by_name(result)["IX_Unused"]
         self.assertEqual(rec.action, REVIEW)
-        self.assertIn("5.0 days since the last restart", rec.reasons[0])
+        self.assertIn("only covers 5.0 days", rec.reasons[0])
 
     def test_short_uptime_adds_a_warning_with_the_start_time(self):
         (warning,) = analyse(self.indexes(), uptime_days=5).warnings

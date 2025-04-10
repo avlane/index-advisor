@@ -56,13 +56,17 @@ AG_WARNING = (
     "readable secondaries are not included; check the other replicas before dropping an index that looks unused.")
 
 
+HISTORY_WARNING = (
+    "The recorded usage history covers only %.1f days, and counters start again whenever the instance restarts. "
+    "Drop recommendations are downgraded to review until the history covers at least %g days.")
+
+
 def _check_unused(rec, thresholds, uptime_days, ag=False):
     ix = rec.index
     if ix.reads == 0 and ix.user_updates > 0:
         if uptime_days < thresholds.min_uptime_days:
             rec.action = REVIEW
-            rec.reasons.append("no reads recorded, but the counters only cover %.1f days since the last "
-                               "restart" % uptime_days)
+            rec.reasons.append("no reads recorded, but the usage data only covers %.1f days" % uptime_days)
         elif ag:
             rec.action = REVIEW
             rec.reasons.append("no reads recorded on this replica, but the database is in an availability group")
@@ -256,9 +260,12 @@ def analyse_database(database, indexes, server, config, foreign_keys=(), in_avai
     warnings = []
     if in_availability_group:
         warnings.append(AG_WARNING)
-    if server.uptime_days < th.min_uptime_days:
-        warnings.append(STATS_RESET_WARNING % (
-            server.start_time.strftime("%Y-%m-%d %H:%M"), server.uptime_days, th.min_uptime_days))
+    if server.trusted_days < th.min_uptime_days:
+        if server.observed_days is None:
+            warnings.append(STATS_RESET_WARNING % (
+                server.start_time.strftime("%Y-%m-%d %H:%M"), server.uptime_days, th.min_uptime_days))
+        else:
+            warnings.append(HISTORY_WARNING % (server.observed_days, th.min_uptime_days))
     recs = []
     for ix in indexes:
         if config.table_excluded(ix.schema, ix.table):
@@ -274,7 +281,7 @@ def analyse_database(database, indexes, server, config, foreign_keys=(), in_avai
             rec.action = REVIEW
             rec.reasons.append("disabled: it holds no data and is not maintained; drop it, or rebuild it on purpose")
         else:
-            _check_unused(rec, th, server.uptime_days, in_availability_group)
+            _check_unused(rec, th, server.trusted_days, in_availability_group)
             _check_low_value(rec, th)
         recs.append(rec)
     _check_duplicates(recs)

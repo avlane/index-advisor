@@ -11,10 +11,16 @@ class ServerInfo:
     now: datetime
     edition: str = ""
     version: str = ""
+    observed_days: Optional[float] = None  # days covered by a --history file, when one is used
 
     @property
     def uptime_days(self):
         return (self.now - self.start_time).total_seconds() / 86400.0
+
+    @property
+    def trusted_days(self):
+        """How long the usage counters have been observed: the history if there is one, else the uptime."""
+        return self.uptime_days if self.observed_days is None else max(self.uptime_days, self.observed_days)
 
 
 @dataclass

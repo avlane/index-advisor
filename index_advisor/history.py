@@ -6,6 +6,8 @@ runs can look at more than the time since the last restart.
 """
 import json
 import os
+from dataclasses import replace
+from datetime import datetime
 
 VERSION = 1
 MAX_SNAPSHOTS = 400  # about a year of daily runs
@@ -67,3 +69,45 @@ def record_history(path, collection):
     del doc["snapshots"][:-MAX_SNAPSHOTS]
     save_history(path, doc)
     return doc
+
+
+def _parse(text):
+    return datetime.fromisoformat(text)
+
+
+def totals(doc):
+    """({index key: {counter: total}}, days observed) over all recorded instance runs.
+
+    Within one run of the instance the counters only grow, so the last snapshot of
+    that run holds its total; the runs are added up.
+    """
+    runs = {}
+    for snap in doc["snapshots"]:
+        runs.setdefault(snap["start_time"], []).append(snap)
+    result, observed = {}, 0.0
+    for start, snaps in runs.items():
+        observed += (max(_parse(s["taken"]) for s in snaps) - _parse(start)).total_seconds() / 86400.0
+        peak = {}
+        for snap in snaps:
+            for key, counters in snap["indexes"].items():
+                best = peak.setdefault(key, dict.fromkeys(COUNTERS, 0))
+                for name in COUNTERS:
+                    best[name] = max(best[name], counters[name])
+        for key, best in peak.items():
+            total = result.setdefault(key, dict.fromkeys(COUNTERS, 0))
+            for name in COUNTERS:
+                total[name] += best[name]
+    return result, observed
+
+
+def apply_history(doc, collection):
+    """Replace the current counters of the collected indexes with the totals over the history."""
+    summed, observed = totals(doc)
+    for ix in collection.all_indexes():
+        total = summed.get(index_key(ix))
+        if total is None:
+            continue
+        ix.user_seeks, ix.user_scans = total["seeks"], total["scans"]
+        ix.user_lookups, ix.user_updates = total["lookups"], total["updates"]
+        ix.has_usage_row = True
+    collection.server = replace(collection.server, observed_days=observed)
