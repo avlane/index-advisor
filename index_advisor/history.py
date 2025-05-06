@@ -75,28 +75,41 @@ def _parse(text):
     return datetime.fromisoformat(text)
 
 
-def totals(doc):
-    """({index key: {counter: total}}, days observed) over all recorded instance runs.
+def _run_total(points):
+    """Total of a counter that starts again from zero at a reset.
 
-    Within one run of the instance the counters only grow, so the last snapshot of
-    that run holds its total; the runs are added up.
+    `points` is [(instance start, value)] in time order. A new instance start, or a
+    value lower than the one before, closes the previous stretch; stretches are added up.
     """
+    total, previous, start = 0, 0, None
+    for run, value in points:
+        if (start is not None and run != start) or value < previous:
+            total += previous
+        previous, start = value, run
+    return total + previous
+
+
+def totals(doc):
+    """({index key: {counter: total}}, days observed) over all recorded snapshots.
+
+    Counters also restart without an instance restart: a database that is detached,
+    set offline or closed by AUTO_CLOSE loses its index usage rows. A fall in a
+    counter is therefore treated as a reset, like a new instance start.
+    """
+    snaps = sorted(doc["snapshots"], key=lambda s: s["taken"])
     runs = {}
-    for snap in doc["snapshots"]:
+    for snap in snaps:
         runs.setdefault(snap["start_time"], []).append(snap)
-    result, observed = {}, 0.0
-    for start, snaps in runs.items():
-        observed += (max(_parse(s["taken"]) for s in snaps) - _parse(start)).total_seconds() / 86400.0
-        peak = {}
-        for snap in snaps:
-            for key, counters in snap["indexes"].items():
-                best = peak.setdefault(key, dict.fromkeys(COUNTERS, 0))
-                for name in COUNTERS:
-                    best[name] = max(best[name], counters[name])
-        for key, best in peak.items():
-            total = result.setdefault(key, dict.fromkeys(COUNTERS, 0))
-            for name in COUNTERS:
-                total[name] += best[name]
+    observed = sum((max(_parse(s["taken"]) for s in group) - _parse(start)).total_seconds() / 86400.0
+                   for start, group in runs.items())
+    keys = {key for snap in snaps for key in snap["indexes"]}
+    zero = dict.fromkeys(COUNTERS, 0)
+    result = {}
+    for key in keys:
+        result[key] = {
+            name: _run_total([(snap["start_time"], snap["indexes"].get(key, zero)[name]) for snap in snaps])
+            for name in COUNTERS
+        }
     return result, observed
 
 

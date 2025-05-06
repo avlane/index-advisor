@@ -77,3 +77,36 @@ class HistoryCliTest(unittest.TestCase):
     def test_json_reports_the_observed_days(self):
         code, out = self.run_cli("--format", "json")
         self.assertEqual(json.loads(out)["server"]["observed_days"], 12.2)
+
+
+class ResetWithinARunTest(unittest.TestCase):
+    def test_a_fall_in_the_counter_is_a_reset(self):
+        doc = {"snapshots": [
+            snap("2023-01-01T00:00:00", "2023-01-10T00:00:00", A=(100, 0)),
+            snap("2023-01-01T00:00:00", "2023-01-11T00:00:00", A=(150, 0)),
+            snap("2023-01-01T00:00:00", "2023-01-12T00:00:00", A=(10, 0)),   # database was detached and attached
+            snap("2023-01-01T00:00:00", "2023-01-13T00:00:00", A=(40, 0)),
+        ]}
+        self.assertEqual(totals(doc)[0]["A"]["seeks"], 190)
+
+    def test_an_index_missing_from_a_snapshot_counts_as_reset_to_zero(self):
+        doc = {"snapshots": [
+            snap("2023-01-01T00:00:00", "2023-01-10T00:00:00", A=(100, 0)),
+            snap("2023-01-01T00:00:00", "2023-01-11T00:00:00", B=(1, 0)),
+            snap("2023-01-01T00:00:00", "2023-01-12T00:00:00", A=(20, 0), B=(2, 0)),
+        ]}
+        self.assertEqual(totals(doc)[0]["A"]["seeks"], 120)
+
+    def test_a_new_instance_start_is_a_reset_even_if_the_counter_is_higher(self):
+        doc = {"snapshots": [
+            snap("2023-01-01T00:00:00", "2023-01-10T00:00:00", A=(10, 0)),
+            snap("2023-02-01T00:00:00", "2023-02-10T00:00:00", A=(500, 0)),
+        ]}
+        self.assertEqual(totals(doc)[0]["A"]["seeks"], 510)
+
+    def test_snapshots_are_ordered_by_time_not_by_position(self):
+        doc = {"snapshots": [
+            snap("2023-01-01T00:00:00", "2023-01-12T00:00:00", A=(40, 0)),
+            snap("2023-01-01T00:00:00", "2023-01-10T00:00:00", A=(10, 0)),
+        ]}
+        self.assertEqual(totals(doc)[0]["A"]["seeks"], 40)
