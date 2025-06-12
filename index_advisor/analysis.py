@@ -274,6 +274,8 @@ def analyse_database(database, indexes, server, config, foreign_keys=(), in_avai
         reason = _protected_reason(ix)
         if reason is None and config.index_kept(ix):
             reason = "listed under [keep] in the configuration"
+        if reason is None and ix.size_mb < th.min_size_mb:
+            reason = "only %.1f MB, below min_size_mb (%g)" % (ix.size_mb, th.min_size_mb)
         if reason:
             rec.protected = True
             rec.reasons.append("%s; %s reads, %s updates" % (reason, format(ix.reads, ","), format(ix.user_updates, ",")))

@@ -2,6 +2,7 @@
 import argparse
 import os
 import sys
+from dataclasses import replace
 
 from . import __version__
 from .collect import analyse_collection, collect
@@ -42,6 +43,8 @@ def build_parser():
                         "slow on large databases")
     p.add_argument("--min-pages", type=int, default=1000, metavar="N",
                    help="with --physical, ignore indexes smaller than N pages (default: %(default)s)")
+    p.add_argument("--min-size-mb", type=float, metavar="MB",
+                   help="never recommend changes to indexes smaller than this (overrides the config file)")
     p.add_argument("--history", metavar="FILE",
                    help="record the usage counters of this run in FILE (see the README)")
     p.add_argument("--scripts-dir", metavar="DIR",
@@ -90,6 +93,8 @@ def main(argv=None, connect=None, stdout=None):
         config = load_config(args.config) if args.config else Config()
     except ConfigError as exc:
         return _error(exc)
+    if args.min_size_mb is not None:
+        config.thresholds = replace(config.thresholds, min_size_mb=args.min_size_mb)
     try:
         conn = (connect or default_connect)(args)
     except Exception as exc:  # driver errors are not importable without the driver
