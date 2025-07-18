@@ -5,39 +5,55 @@ import unittest
 from index_advisor.cli import main
 from index_advisor.config import parse_config
 from index_advisor.missing import suggest
-from index_advisor.queries import fetch_indexes, fetch_missing_indexes
-from index_advisor.report import render
+from index_advisor.model import MissingIndex
 
 from .fakes import connection_from_fixture
 from .helpers import ix
 
 
+def request(equality, inequality=(), includes=(), table="Orders"):
+    return MissingIndex("Sales", "dbo", table, list(equality), list(inequality), list(includes),
+                        seeks=1000, avg_cost=10.0, avg_impact=50.0)
+
+
 class ExistingIndexTest(unittest.TestCase):
-    def suggestions(self, indexes):
-        missing = fetch_missing_indexes(connection_from_fixture("sales_long"))
-        return suggest(missing, parse_config({}).thresholds, "Sales", indexes)
+    th = parse_config({}).thresholds
+
+    def suggestions(self, indexes, *requests):
+        return suggest(list(requests), self.th, "Sales", indexes)
 
     def test_new_index_when_nothing_matches(self):
-        first = self.suggestions([])[0]
-        self.assertIsNone(first.extends)
-        self.assertEqual(first.notes, [])
+        (s,) = self.suggestions([], request(["A", "B"]))
+        self.assertIsNone(s.extends)
+        self.assertEqual(s.notes, [])
 
     def test_existing_index_with_the_same_leading_columns_is_extended(self):
-        existing = ix("IX_Orders_Customer", ["CustomerID"], table="Orders")
-        second = [s for s in self.suggestions([existing]) if s.name == "IX_Orders_CustomerID"][0]
-        self.assertIs(second.extends, existing)
-        self.assertEqual(second.add_columns, ["Status", "OrderDate"])
-        self.assertIn("consider adding INCLUDE (Status, OrderDate) to it instead of a new index", second.notes[0])
+        existing = ix("IX_AB", ["B", "A"], table="Orders")
+        (s,) = self.suggestions([existing], request(["A", "B"], ["C"], ["D"]))
+        self.assertIs(s.extends, existing)
+        self.assertEqual(s.add_columns, ["C", "D"])
+        self.assertEqual(s.notes, ["IX_AB already leads with the equality columns; consider adding INCLUDE (C, D) "
+                                   "to it instead of a new index"])
 
     def test_fully_covering_index_means_the_suggestion_is_suspect(self):
-        existing = ix("IX_Orders_Customer_Date", ["CustomerID", "OrderDate"], ["Status"], table="Orders")
-        second = [s for s in self.suggestions([existing]) if s.name == "IX_Orders_CustomerID"][0]
-        self.assertEqual(second.add_columns, [])
-        self.assertIn("already covers this request", second.notes[0])
+        existing = ix("IX_ABC", ["A", "B", "C"], ["D"], table="Orders")
+        (s,) = self.suggestions([existing], request(["A", "B"], ["C"], ["D"]))
+        self.assertEqual(s.add_columns, [])
+        self.assertIn("IX_ABC already covers this request", s.notes[0])
+
+    def test_clustered_index_covers_everything(self):
+        pk = ix("PK", ["A"], table="Orders", type_desc="CLUSTERED", is_unique=True, is_primary_key=True)
+        (s,) = self.suggestions([pk], request(["A"], includes=["Z"]))
+        self.assertEqual(s.add_columns, [])
 
     def test_other_tables_and_disabled_indexes_do_not_match(self):
-        others = [ix("IX_X", ["CustomerID"], table="Other"), ix("IX_Off", ["CustomerID"], table="Orders", is_disabled=True)]
-        self.assertTrue(all(s.extends is None for s in self.suggestions(others)))
+        others = [ix("IX_X", ["A"], table="Other"), ix("IX_Off", ["A"], table="Orders", is_disabled=True)]
+        (s,) = self.suggestions(others, request(["A"]))
+        self.assertIsNone(s.extends)
+
+    def test_requests_without_equality_columns_never_match(self):
+        (s,) = self.suggestions([ix("IX_A", ["A"], table="Orders")], request([], ["A"]))
+        self.assertIsNone(s.extends)
 
 
 class SuggestionReportTest(unittest.TestCase):
@@ -50,26 +66,22 @@ class SuggestionReportTest(unittest.TestCase):
         text = self.run_cli()
         self.assertIn("  Missing index suggestions (not applied):", text)
         self.assertIn("    IX_Orders_CustomerID_Status_OrderDate ON dbo.Orders (CustomerID, Status, OrderDate) INCLUDE (Total)", text)
-        self.assertIn("        score 3,946,800: 2,200 uses, average cost 18.4, average impact 98%", text)
+        self.assertIn("        score 3,991,530: 2,200 uses, average cost 18.4, average impact 98%", text)
+        self.assertIn("        - also satisfies a request for (CustomerID) INCLUDE (Status, OrderDate), score 44,730", text)
         self.assertIn("    IX_Employees_Email ON dbo.Employees (Email)", text)
-
-    def test_suggestions_against_surviving_indexes_only(self):
-        # IX_Orders_Customer is a drop candidate, IX_Orders_Customer_Date stays and covers the request
-        text = self.run_cli()
-        self.assertIn("IX_Orders_Customer_Date already covers this request", text)
 
     def test_json(self):
         doc = json.loads(self.run_cli("--format", "json"))
         sales = [d for d in doc["databases"] if d["name"] == "Sales"][0]
-        self.assertEqual([s["name"] for s in sales["suggestions"]],
-                         ["IX_Orders_CustomerID_Status_OrderDate", "IX_Orders_CustomerID"])
-        self.assertEqual(sales["suggestions"][0]["score"], 3946800)
-        self.assertEqual(sales["suggestions"][1]["extends"], "IX_Orders_Customer_Date")
+        (suggestion,) = sales["suggestions"]
+        self.assertEqual(suggestion["name"], "IX_Orders_CustomerID_Status_OrderDate")
+        self.assertEqual(suggestion["score"], 3991530)
+        self.assertIsNone(suggestion["extends"])
 
     def test_markdown(self):
         text = self.run_cli("--format", "markdown")
         self.assertIn("Missing index suggestions (not applied):", text)
-        self.assertIn("| `IX_Orders_CustomerID_Status_OrderDate` on `dbo.Orders` | CustomerID, Status, OrderDate | Total | 3,946,800 |", text)
+        self.assertIn("| `IX_Orders_CustomerID_Status_OrderDate` on `dbo.Orders` | CustomerID, Status, OrderDate | Total | 3,991,530 |", text)
 
     def test_unreadable_missing_index_dmvs_are_reported_but_do_not_stop_the_run(self):
         class NoDmv:
