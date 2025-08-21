@@ -12,7 +12,7 @@ from .history import HistoryError, apply_history, record_history
 from .report import render
 from .scripts import generate_scripts
 
-EXIT_OK, EXIT_ERROR, EXIT_PARTIAL = 0, 3, 4
+EXIT_OK, EXIT_FINDINGS, EXIT_ERROR, EXIT_PARTIAL = 0, 1, 3, 4
 
 
 class _Parser(argparse.ArgumentParser):
@@ -28,7 +28,8 @@ def build_parser():
         prog="index-advisor",
         description="Read index usage statistics and recommend which indexes to keep, drop or consolidate. "
                     "Read-only: nothing is changed on the server.",
-        epilog="Exit codes: 0 done, 3 usage/config/connection error, 4 done but some databases could not be read.",
+        epilog="Exit codes: 0 done, 1 recommendations exist (only with --exit-code), 3 usage/config/connection "
+               "error, 4 done but some databases could not be read.",
     )
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     p.add_argument("--server", required=True, help="instance to analyse, e.g. SQLPROD01 or SQLPROD01,1433")
@@ -43,6 +44,8 @@ def build_parser():
                         "slow on large databases")
     p.add_argument("--min-pages", type=int, default=1000, metavar="N",
                    help="with --physical, ignore indexes smaller than N pages (default: %(default)s)")
+    p.add_argument("--exit-code", action="store_true",
+                   help="exit with 1 when there is at least one drop or consolidate recommendation")
     p.add_argument("--min-size-mb", type=float, metavar="MB",
                    help="never recommend changes to indexes smaller than this (overrides the config file)")
     p.add_argument("--history", metavar="FILE",
@@ -127,7 +130,12 @@ def main(argv=None, connect=None, stdout=None):
             fh.write(text)
     else:
         stdout.write(text)
-    return EXIT_PARTIAL if report.errors else EXIT_OK
+    if report.errors:
+        return EXIT_PARTIAL
+    by_action = report.totals()["by_action"]
+    if args.exit_code and by_action["drop"] + by_action["consolidate"]:
+        return EXIT_FINDINGS
+    return EXIT_OK
 
 
 if __name__ == "__main__":
