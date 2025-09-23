@@ -13,7 +13,8 @@ SELECT @@SERVERNAME AS server_name,
        si.sqlserver_start_time AS start_time,
        GETDATE() AS now,
        CAST(SERVERPROPERTY('Edition') AS nvarchar(128)) AS edition,
-       CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)) AS version
+       CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)) AS version,
+       CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition
 FROM sys.dm_os_sys_info AS si;
 """
 
@@ -120,7 +121,8 @@ def fetch_server_info(conn):
         cur.execute(SERVER_SQL)
         row = rows_as_dicts(cur)[0]
         return ServerInfo(row["server_name"], _dt(row["start_time"]), _dt(row["now"]),
-                          row["edition"] or "", row["version"] or "")
+                          row["edition"] or "", row["version"] or "",
+                          engine_edition=int(row.get("engine_edition") or 0))
     finally:
         cur.close()
 

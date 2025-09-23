@@ -40,7 +40,7 @@ def _storage_clause(ix):
     return ""
 
 
-def create_statement(ix, includes=None, drop_existing=False):
+def create_statement(ix, includes=None, drop_existing=False, online=False):
     """CREATE INDEX for a rowstore nonclustered index.
 
     Only the keys, includes, filter and fill factor are rebuilt from metadata;
@@ -62,6 +62,8 @@ def create_statement(ix, includes=None, drop_existing=False):
         options.append("DATA_COMPRESSION = %s" % ix.compression)
     if drop_existing:
         options.append("DROP_EXISTING = ON")
+    if online:
+        options.append("ONLINE = ON")
     if options:
         sql += " WITH (%s)" % ", ".join(options)
     return sql + _storage_clause(ix) + ";"
@@ -70,6 +72,13 @@ def create_statement(ix, includes=None, drop_existing=False):
 def _header(analysis, server):
     return HEADER.format(version=__version__, server=server.server_name or "(unknown)",
                          database=quote_name(analysis.database), when=server.now.strftime("%Y-%m-%d %H:%M"))
+
+
+def online_note(server):
+    if server.online_rebuild:
+        return "-- ONLINE = ON is used because this edition supports online index operations."
+    return ("-- This edition cannot rebuild indexes online (ONLINE = ON is left out): the rebuilds below block "
+            "writes to the table while they run.")
 
 
 def drop_candidates(analysis):
@@ -157,6 +166,7 @@ def consolidate_script(analysis, server):
         "-- then drop the narrower one. Every statement is commented out; remove the leading '-- ' from the",
         "-- ones you accept, and run the steps of one block in order. Rebuilding the target locks or scans the",
         "-- whole index, so schedule it for a quiet period.",
+        online_note(server),
         "",
         "USE %s;" % quote_name(analysis.database),
         "GO",
@@ -169,12 +179,12 @@ def consolidate_script(analysis, server):
         for source in sources:
             lines.append("--   from %s (%.1f MB)" % (one_line(source.index.full_name), source.index.size_mb))
         lines.append("-- 1. add the missing included columns to the kept index")
-        lines.append("-- " + create_statement(ix, includes=merged, drop_existing=True))
+        lines.append("-- " + create_statement(ix, includes=merged, drop_existing=True, online=server.online_rebuild))
         lines.append("-- 2. drop the merged index(es)")
         for source in sources:
             lines.append("-- " + drop_statement(source.index))
         lines.append("-- Rollback")
-        lines.append("--   " + create_statement(ix, drop_existing=True))
+        lines.append("--   " + create_statement(ix, drop_existing=True, online=server.online_rebuild))
         for source in sources:
             lines.append("--   " + create_statement(source.index))
         lines.append("")
@@ -197,6 +207,7 @@ def missing_script(analysis, server):
         "-- indexes on the table, and are cleared by a restart or a change to the table. Treat them as hints:",
         "-- compare them with the existing indexes, create at most one index per table at a time, and measure",
         "-- the effect on writes. Every statement is commented out.",
+        online_note(server),
         "",
         "USE %s;" % quote_name(analysis.database),
         "GO",
@@ -213,7 +224,8 @@ def missing_script(analysis, server):
             lines.append("-- " + new_index_statement(s))
         elif s.add_columns:
             widened = s.extends.includes + s.add_columns
-            lines.append("-- " + create_statement(s.extends, includes=widened, drop_existing=True))
-            lines.append("-- Rollback: " + create_statement(s.extends, drop_existing=True))
+            online = server.online_rebuild
+            lines.append("-- " + create_statement(s.extends, includes=widened, drop_existing=True, online=online))
+            lines.append("-- Rollback: " + create_statement(s.extends, drop_existing=True, online=online))
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"

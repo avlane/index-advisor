@@ -12,10 +12,16 @@ class ServerInfo:
     edition: str = ""
     version: str = ""
     observed_days: Optional[float] = None  # days covered by a --history file, when one is used
+    engine_edition: int = 0  # SERVERPROPERTY('EngineEdition'): 3 is Enterprise, Developer or Evaluation
 
     @property
     def uptime_days(self):
         return (self.now - self.start_time).total_seconds() / 86400.0
+
+    @property
+    def online_rebuild(self):
+        """Can this edition build and rebuild indexes with ONLINE = ON? (Enterprise-class editions and Azure SQL.)"""
+        return self.engine_edition in (3, 5, 8)
 
     @property
     def trusted_days(self):
