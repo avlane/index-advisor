@@ -8,6 +8,7 @@ from . import __version__
 from .collect import analyse_collection, collect
 from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
+from .dump import DumpError, dump_collection
 from .history import HistoryError, apply_history, record_history
 from .report import render
 from .scripts import generate_scripts
@@ -48,6 +49,8 @@ def build_parser():
                    help="exit with 1 when there is at least one drop or consolidate recommendation")
     p.add_argument("--min-size-mb", type=float, metavar="MB",
                    help="never recommend changes to indexes smaller than this (overrides the config file)")
+    p.add_argument("--dump", metavar="FILE",
+                   help="save everything read from the server in FILE, to repeat the analysis offline")
     p.add_argument("--history", metavar="FILE",
                    help="record the usage counters of this run in FILE (see the README)")
     p.add_argument("--scripts-dir", metavar="DIR",
@@ -111,6 +114,11 @@ def main(argv=None, connect=None, stdout=None):
         return _error("query failed: %s" % exc)
     finally:
         conn.close()
+    if args.dump:
+        try:
+            dump_collection(args.dump, collection)
+        except (OSError, DumpError) as exc:
+            return _error("cannot write the dump: %s" % exc)
     if args.history:
         try:
             apply_history(record_history(args.history, collection), collection)
