@@ -8,7 +8,7 @@ from . import __version__
 from .collect import analyse_collection, collect
 from .config import Config, ConfigError, load_config
 from .connection import DEFAULT_DRIVER
-from .dump import DumpError, dump_collection
+from .dump import DumpError, dump_collection, load_collection
 from .history import HistoryError, apply_history, record_history
 from .report import render
 from .scripts import generate_scripts
@@ -33,7 +33,8 @@ def build_parser():
                "error, 4 done but some databases could not be read.",
     )
     p.add_argument("--version", action="version", version="%(prog)s " + __version__)
-    p.add_argument("--server", required=True, help="instance to analyse, e.g. SQLPROD01 or SQLPROD01,1433")
+    p.add_argument("--server", help="instance to analyse, e.g. SQLPROD01 or SQLPROD01,1433")
+    p.add_argument("--from-dump", metavar="FILE", help="analyse a file written by --dump instead of connecting")
     p.add_argument("--config", help="TOML file with thresholds and exclusions")
     p.add_argument("-d", "--database", action="append", default=[], metavar="NAME",
                    help="only analyse this database (repeatable)")
@@ -92,9 +93,29 @@ def _select(names, wanted, config):
     return [lookup[w.lower()] for w in wanted]
 
 
+def _acquire(args, config, connect):
+    """The Collection to analyse, read from a dump or from the server. Raises LookupError or Exception."""
+    if args.from_dump:
+        collection = load_collection(args.from_dump)
+        chosen = set(_select([d.name for d in collection.databases], args.database, config))
+        collection.databases = [d for d in collection.databases if d.name in chosen]
+        return collection
+    conn = (connect or default_connect)(args)
+    try:
+        return collect(conn, lambda names: _select(names, args.database, config),
+                       physical=args.physical, min_pages=args.min_pages)
+    finally:
+        conn.close()
+
+
 def main(argv=None, connect=None, stdout=None):
     stdout = stdout or sys.stdout
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if bool(args.server) == bool(args.from_dump):
+        parser.error("give exactly one of --server and --from-dump")
+    if args.from_dump and (args.dump or args.physical):
+        parser.error("--dump and --physical need a live connection (--server)")
     try:
         config = load_config(args.config) if args.config else Config()
     except ConfigError as exc:
@@ -102,22 +123,17 @@ def main(argv=None, connect=None, stdout=None):
     if args.min_size_mb is not None:
         config.thresholds = replace(config.thresholds, min_size_mb=args.min_size_mb)
     try:
-        conn = (connect or default_connect)(args)
-    except Exception as exc:  # driver errors are not importable without the driver
-        return _error("cannot connect to %s: %s" % (args.server, exc))
-    try:
-        collection = collect(conn, lambda names: _select(names, args.database, config),
-                             physical=args.physical, min_pages=args.min_pages)
+        collection = _acquire(args, config, connect)
     except LookupError as exc:
         return _error(exc)
-    except Exception as exc:
-        return _error("query failed: %s" % exc)
-    finally:
-        conn.close()
+    except DumpError as exc:
+        return _error(exc)
+    except Exception as exc:  # driver errors are not importable without the driver
+        return _error("cannot read %s: %s" % (args.server, exc))
     if args.dump:
         try:
             dump_collection(args.dump, collection)
-        except (OSError, DumpError) as exc:
+        except OSError as exc:
             return _error("cannot write the dump: %s" % exc)
     if args.history:
         try:
