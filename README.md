@@ -101,6 +101,7 @@ code, jobs and plan guides for INDEX hints that name the index; they fail once i
 | code | meaning |
 | --- | --- |
 | 0 | finished |
+| 1 | finished, and with `--exit-code` there is at least one drop or consolidate recommendation |
 | 3 | usage, configuration, connection or query error |
 | 4 | finished, but some databases (or the missing-index DMVs) could not be read |
 
@@ -118,3 +119,35 @@ Tested with `python3 -m unittest discover` (no pyodbc and no server needed):
 ```
 python3 -m unittest discover
 ```
+
+## Configuration file
+
+`--config advisor.toml`; see `examples/advisor.toml` for every key.
+
+* `[thresholds]`: `min_uptime_days`, `min_updates`, `low_read_ratio`, `min_missing_score`, `min_size_mb`
+* `[exclude]`: `databases` and `tables` (`schema.table`) patterns, never analysed (naming a database with `-d` overrides this)
+* `[keep]`: `indexes` patterns (`database.schema.table.index`) that are never recommended for a change
+
+Patterns use `*` and `?` and ignore case.
+
+## Counting across restarts: `--history`
+
+`--history history.json` appends the current counters of every index to the file on each run, and
+the recommendations then use the totals over all recorded runs of the instance. A restart, or a
+database that is detached or closed, starts a new stretch; stretches are added up. `min_uptime_days`
+is compared with the days covered by the history, so a weekly scheduled run turns "up for 4 days"
+into "observed for 90 days" after a few months. The file holds counters only (no query text or data).
+It is trimmed to the latest 400 snapshots. It can only count what was running when the tool ran:
+a restart between two runs loses the activity since the previous run.
+
+## Working offline: `--dump` and `--from-dump`
+
+`--dump dump.json` saves everything read from the server. `--from-dump dump.json` repeats the
+analysis from that file, without a connection, for example with a different configuration, or on a
+machine that cannot reach the server.
+
+## Running it on a schedule
+
+`examples/weekly.ps1` runs it weekly with `--history`, writes the report and the review scripts to a
+dated folder, and passes `--exit-code` through so that a job step can fail when there is something to
+review.
