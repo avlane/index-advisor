@@ -37,6 +37,11 @@ def render_text(report, show_keep=False):
             lines.append("  %-11s %s (%s)" % (rec.action.upper(), rec.index.full_name, _mb(rec.index.size_mb)))
             for reason in rec.reasons:
                 lines.append("      - " + reason)
+        tables = db.table_summary()
+        if tables:
+            lines.append("  By table:")
+            for table, drops, merges, mb in tables:
+                lines.append("    %s: %d drop, %d consolidate, %s" % (table, drops, merges, _mb(mb)))
         if db.suggestions:
             lines.append("  Missing index suggestions (not applied):")
             for s in db.suggestions:
@@ -113,6 +118,8 @@ def render_json(report, show_keep=False):
                 "counts": db.counts(),
                 "warnings": db.warnings,
                 "recommendations": [_recommendation_doc(r) for r in _ordered(db.recommendations, True)],
+                "tables": [{"table": t, "drop": d, "consolidate": c, "drop_size_mb": round(mb, 1)}
+                           for t, d, c, mb in db.table_summary()],
                 "suggestions": [_suggestion_doc(s) for s in db.suggestions],
             }
             for db in report.databases
@@ -149,6 +156,10 @@ def render_markdown(report, show_keep=False):
                 lines.append("| %s | `%s` | %s | %s | %s | %s |" % (
                     rec.action, ix.full_name, _mb(ix.size_mb), format(ix.reads, ","), format(ix.user_updates, ","),
                     "<br>".join(_cell(r) for r in rec.reasons)))
+        tables = db.table_summary()
+        if tables:
+            lines += ["", "| Table | Drop | Consolidate | Space held by drops |", "| --- | ---: | ---: | ---: |"]
+            lines += ["| `%s` | %d | %d | %s |" % (t, d, c, _mb(mb)) for t, d, c, mb in tables]
         if db.suggestions:
             lines += ["", "Missing index suggestions (not applied):", "",
                       "| Suggested index | Keys | Include | Score | Notes |", "| --- | --- | --- | ---: | --- |"]

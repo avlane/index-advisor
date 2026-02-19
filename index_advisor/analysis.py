@@ -22,6 +22,20 @@ class DatabaseAnalysis:
     warnings: list = field(default_factory=list)
     suggestions: list = field(default_factory=list)  # missing-index suggestions (not applied)
 
+    def table_summary(self):
+        """[(table, drops, consolidations, reclaimable MB)] for tables with changes, biggest saving first."""
+        tables = {}
+        for rec in self.recommendations:
+            if rec.action not in (DROP, CONSOLIDATE):
+                continue
+            row = tables.setdefault(rec.index.table_name, [0, 0, 0.0])
+            if rec.action == DROP:
+                row[0] += 1
+                row[2] += rec.index.size_mb
+            else:
+                row[1] += 1
+        return sorted(((t, d, c, mb) for t, (d, c, mb) in tables.items()), key=lambda r: (-r[3], -(r[1]), r[0]))
+
     def counts(self):
         counts = {KEEP: 0, DROP: 0, CONSOLIDATE: 0, REVIEW: 0}
         for rec in self.recommendations:
