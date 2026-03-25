@@ -18,7 +18,14 @@ def _totals_sentence(totals):
         totals["indexes"], totals["by_action"]["drop"], _mb(totals["drop_size_mb"]), format(totals["drop_updates"], ","))
 
 
-def render_text(report, show_keep=False):
+def _limited(recs, top):
+    """The first `top` recommendations and how many were left out (top 0 means all)."""
+    if top and len(recs) > top:
+        return recs[:top], len(recs) - top
+    return recs, 0
+
+
+def render_text(report, show_keep=False, top=0):
     server = report.server
     lines = [
         "index-advisor report for %s" % (server.server_name or "(unknown server)"),
@@ -33,10 +40,13 @@ def render_text(report, show_keep=False):
             db.database, len(db.recommendations), counts["drop"], counts["consolidate"], counts["review"], counts["keep"]))
         for warning in db.warnings:
             lines.append("  WARNING: " + warning)
-        for rec in _ordered(db.recommendations, show_keep):
+        shown, hidden = _limited(_ordered(db.recommendations, show_keep), top)
+        for rec in shown:
             lines.append("  %-11s %s (%s)" % (rec.action.upper(), rec.index.full_name, _mb(rec.index.size_mb)))
             for reason in rec.reasons:
                 lines.append("      - " + reason)
+        if hidden:
+            lines.append("  ... and %d more (use --top 0 to list them all)" % hidden)
         tables = db.table_summary()
         if tables:
             lines.append("  By table:")
@@ -98,7 +108,7 @@ def _suggestion_doc(s):
     }
 
 
-def render_json(report, show_keep=False):
+def render_json(report, show_keep=False, top=0):
     """All recommendations, including keep: consumers filter on `action` themselves."""
     server = report.server
     doc = {
@@ -134,7 +144,7 @@ def _cell(value):
     return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
-def render_markdown(report, show_keep=False):
+def render_markdown(report, show_keep=False, top=0):
     server = report.server
     lines = [
         "# Index review: %s" % (server.server_name or "(unknown server)"),
@@ -148,7 +158,7 @@ def render_markdown(report, show_keep=False):
                       len(db.recommendations), counts["drop"], counts["consolidate"], counts["review"], counts["keep"])]
         for warning in db.warnings:
             lines += ["", "> **Warning:** " + _cell(warning)]
-        recs = _ordered(db.recommendations, show_keep)
+        recs, hidden = _limited(_ordered(db.recommendations, show_keep), top)
         if recs:
             lines += ["", "| Action | Index | Size | Reads | Updates | Reasons |", "| --- | --- | ---: | ---: | ---: | --- |"]
             for rec in recs:
@@ -156,6 +166,8 @@ def render_markdown(report, show_keep=False):
                 lines.append("| %s | `%s` | %s | %s | %s | %s |" % (
                     rec.action, ix.full_name, _mb(ix.size_mb), format(ix.reads, ","), format(ix.user_updates, ","),
                     "<br>".join(_cell(r) for r in rec.reasons)))
+            if hidden:
+                lines += ["", "_... and %d more (use `--top 0` to list them all)._" % hidden]
         tables = db.table_summary()
         if tables:
             lines += ["", "| Table | Drop | Consolidate | Space held by drops |", "| --- | ---: | ---: | ---: |"]
@@ -177,9 +189,9 @@ def render_markdown(report, show_keep=False):
 RENDERERS = {"text": render_text, "json": render_json, "markdown": render_markdown}
 
 
-def render(report, fmt="text", show_keep=False):
+def render(report, fmt="text", show_keep=False, top=0):
     try:
         renderer = RENDERERS[fmt]
     except KeyError:
         raise ValueError("unknown report format: %s" % fmt) from None
-    return renderer(report, show_keep=show_keep)
+    return renderer(report, show_keep=show_keep, top=top)

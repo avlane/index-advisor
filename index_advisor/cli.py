@@ -41,6 +41,9 @@ def build_parser():
     p.add_argument("--format", choices=("text", "json", "markdown"), default="text", help="report format (default: text)")
     p.add_argument("-o", "--output", help="write the report to this file instead of stdout")
     p.add_argument("--show-keep", action="store_true", help="also list the indexes that should be kept")
+    p.add_argument("--top", type=int, default=0, metavar="N",
+                   help="list at most N recommendations per database in the text and Markdown reports "
+                        "(default: all); the JSON report always has everything")
     p.add_argument("--physical", action="store_true",
                    help="also read index fragmentation (sys.dm_db_index_physical_stats, LIMITED mode); "
                         "slow on large databases")
@@ -148,7 +151,7 @@ def main(argv=None, connect=None, stdout=None):
             with open(os.path.join(args.scripts_dir, name), "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(content)
         print("index-advisor: wrote %d script(s) to %s" % (len(files), args.scripts_dir), file=sys.stderr)
-    text = render(report, args.format, show_keep=args.show_keep)
+    text = render(report, args.format, show_keep=args.show_keep, top=args.top)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(text)
