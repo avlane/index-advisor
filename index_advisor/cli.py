@@ -1,5 +1,6 @@
 """Command line interface for index-advisor."""
 import argparse
+import fnmatch
 import os
 import sys
 from dataclasses import replace
@@ -37,7 +38,7 @@ def build_parser():
     p.add_argument("--from-dump", metavar="FILE", help="analyse a file written by --dump instead of connecting")
     p.add_argument("--config", help="TOML file with thresholds and exclusions")
     p.add_argument("-d", "--database", action="append", default=[], metavar="NAME",
-                   help="only analyse this database (repeatable)")
+                   help="only analyse this database; wildcards * and ? work (repeatable)")
     p.add_argument("--format", choices=("text", "json", "markdown"), default="text", help="report format (default: text)")
     p.add_argument("-o", "--output", help="write the report to this file instead of stdout")
     p.add_argument("--show-keep", action="store_true", help="also list the indexes that should be kept")
@@ -89,11 +90,14 @@ def _select(names, wanted, config):
     """Explicitly named databases win over [exclude] databases."""
     if not wanted:
         return [n for n in names if not config.database_excluded(n)]
-    lookup = {n.lower(): n for n in names}
-    missing = [w for w in wanted if w.lower() not in lookup]
+    chosen, missing = [], []
+    for pattern in wanted:
+        found = [n for n in names if n.lower() == pattern.lower() or fnmatch.fnmatchcase(n.lower(), pattern.lower())]
+        missing += [] if found else [pattern]
+        chosen += [n for n in found if n not in chosen]
     if missing:
-        raise LookupError("database not found (or not online): %s" % ", ".join(missing))
-    return [lookup[w.lower()] for w in wanted]
+        raise LookupError("no online database matches: %s" % ", ".join(missing))
+    return chosen
 
 
 def _acquire(args, config, connect):
