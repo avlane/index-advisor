@@ -2,6 +2,12 @@
 
 This is the first changelog. Releases before 0.4.0 were not tagged; their changes are summarised here.
 
+## 0.5.0 - 2026-07-16
+
+* `--dump` and `--from-dump` to repeat an analysis without a connection
+* Per-table summary, `--top`, wildcards in `--database`
+* README rewritten
+
 ## 0.4.0 - 2025-10-30
 
 * Exclusions and a keep list in the configuration file (`[exclude]`, `[keep]`)
